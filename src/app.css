@@ -1,0 +1,145 @@
+/* Оформление в духе kvartira.html: спокойная зелёная гамма, Golos + Unbounded, карточки и «таблетки».
+   План всегда на белом листе, как чертёж; остальное следует светлой или тёмной теме системы. */
+:root {
+  --bg: #E9EDEB;
+  --surface: #F7F9F8;
+  --raised: #FFFFFF;
+  --ink: #1C2322;
+  --muted: #586663;
+  --line: #D2D9D6;
+  --chip: #DCE3E0;
+  --stage: #DCE2DF;
+  --accent: #2D6A62;
+  --accent-ink: #FFFFFF;
+  --danger: #B4532A;
+  --shadow: 0 1px 2px rgba(20, 30, 28, .06), 0 6px 18px rgba(20, 30, 28, .06);
+  --font-display: "Unbounded", "Golos Text", system-ui, sans-serif;
+  --font-body: "Golos Text", system-ui, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121615; --surface: #1A1F1E; --raised: #212826; --ink: #E4EAE8; --muted: #97A5A1; --line: #2C3432;
+    --chip: #2A3230; --stage: #1B2220; --accent: #74B6AC; --accent-ink: #0E1614; --danger: #E39363;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 18px rgba(0, 0, 0, .25);
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font-body); }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.app {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) 300px;
+  grid-template-rows: 56px minmax(0, 1fr);
+  height: 100%;
+  gap: 0 12px;
+  padding: 0 12px 12px 0;
+}
+
+/* ---------- верхняя панель ---------- */
+.topbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 0 0 0 20px; }
+.brand { font: 500 17px/1 var(--font-display); letter-spacing: -.01em; }
+.spacer { flex: 1; }
+.pills { display: flex; gap: 2px; padding: 3px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); }
+.pills button { padding: 6px 13px; border: 0; border-radius: 999px; background: transparent; font-weight: 500; font-size: 13px; cursor: pointer; }
+.pills button:hover { background: var(--chip); }
+.pills button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+
+/* ---------- инструменты ---------- */
+.tools { display: flex; flex-direction: column; gap: 8px; padding: 0 0 0 12px; }
+.tool {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 10px 4px 8px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface);
+  font-size: 11.5px; font-weight: 500; cursor: pointer; box-shadow: var(--shadow);
+}
+.tool:hover { border-color: var(--accent); }
+.tool svg { width: 22px; height: 22px; fill: currentColor; }
+.tool kbd { position: absolute; top: 4px; right: 5px; font: 9.5px var(--font-mono); color: var(--muted); border: 0; background: none; padding: 0; }
+.tool[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.tool[aria-pressed="true"] kbd { color: var(--accent-ink); opacity: .7; }
+
+/* ---------- поле: план и 3D ---------- */
+.views { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 0; min-width: 0; }
+.views.layout-plan { grid-template-columns: 1fr; }
+.views.layout-plan .pane-3d, .views.layout-3d .pane-plan { display: none; }
+.views.layout-3d { grid-template-columns: 1fr; }
+.pane { position: relative; border-radius: 16px; overflow: hidden; border: 1px solid var(--line); min-height: 0; background: var(--stage); box-shadow: var(--shadow); }
+.pane > svg { display: block; width: 100%; height: 100%; }
+/* React Three Fiber кладёт холст в свою обёртку — растягиваем её на всё окно */
+.pane > div { position: absolute; inset: 0; }
+.pane-tag {
+  position: absolute; left: 12px; top: 12px; pointer-events: none; z-index: 2;
+  font-size: 12px; color: var(--muted); padding: 4px 10px; border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent); border: 1px solid var(--line);
+}
+.pane-plan .pane-tag { background: rgba(255, 255, 255, .9); color: #586663; border-color: #D2D9D6; }
+
+/* ---------- план (всегда светлый, как лист чертежа) ---------- */
+.plan { user-select: none; touch-action: none; }
+.plan.tool-wall { cursor: crosshair; }
+.plan-paper { fill: #FFFFFF; }
+.plan .grid-minor, .plan .grid-major, .plan .wall, .plan .room-floor, .plan .node, .plan .snap, .plan .handle, .plan .marquee { vector-effect: non-scaling-stroke; }
+.grid-minor { stroke: #F0F3F2; stroke-width: 1; }
+.grid-major { stroke: #D9E0DD; stroke-width: 1; }
+.room-floor { fill: #F6F0E7; stroke: none; }
+.room-name { font-family: var(--font-body); font-weight: 600; fill: #1C2322; }
+.room-area { font-family: var(--font-mono); fill: #586663; }
+.wall { fill: #3A403E; stroke: #1C2322; stroke-width: 1; }
+.plan.tool-select .wall { cursor: move; }
+.plan.tool-select .wall:hover { fill: #4E5654; }
+.wall.selected { fill: #2D6A62; stroke: #1E4A44; }
+.dim-text { font-family: var(--font-mono); fill: #1C2322; paint-order: stroke; stroke: #FFFFFF; stroke-linejoin: round; pointer-events: none; }
+.node { fill: #FFFFFF; stroke: #586663; stroke-width: 1.5; pointer-events: none; }
+.node.close { fill: #2D6A62; stroke: #2D6A62; }
+.handle { fill: #FFFFFF; stroke: #2D6A62; stroke-width: 2; cursor: grab; }
+.handle:hover { fill: #2D6A62; }
+.preview line { stroke: #2D6A62; stroke-opacity: .45; stroke-linecap: butt; }
+.snap { fill: none; stroke: #2D6A62; stroke-width: 2; pointer-events: none; }
+.marquee { fill: rgba(45, 106, 98, .08); stroke: #2D6A62; stroke-width: 1; pointer-events: none; }
+.marquee.crossing { stroke-dasharray: 5 4; fill: rgba(45, 106, 98, .05); }
+.plan-empty { font: 500 14px var(--font-body); fill: #586663; }
+.chip {
+  max-width: 100%;
+  display: inline-block; font: 13px var(--font-body); color: #586663; padding: 7px 12px; border-radius: 10px;
+  background: rgba(247, 249, 248, .94); border: 1px solid #D2D9D6;
+}
+.chip b { font: 600 13px var(--font-mono); color: #2D6A62; }
+.chip b.bad { color: #B4532A; }
+.length-box {
+  display: flex; align-items: center; gap: 8px; height: 100%; padding: 0 6px 0 12px; border-radius: 10px;
+  background: #FFFFFF; border: 1.5px solid #2D6A62; box-shadow: 0 4px 14px rgba(20, 30, 28, .14);
+  font: 500 12px var(--font-body); color: #586663;
+}
+.length-box input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: 600 15px var(--font-mono); color: #1C2322; }
+.length-box input::placeholder { color: #9AA6A2; font-weight: 400; }
+.length-box.bad { border-color: #B4532A; }
+
+/* ---------- панель свойств ---------- */
+.inspector { overflow-y: auto; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.insp-head { padding: 4px 4px 0; display: flex; flex-direction: column; gap: 4px; }
+.eyebrow { margin: 0; font-size: 12px; color: var(--muted); }
+.insp-head h1 { margin: 0; font: 500 20px/1.2 var(--font-display); letter-spacing: -.01em; }
+.kv-line { margin: 2px 0 0; display: flex; gap: 14px; font-size: 13px; color: var(--muted); }
+.kv-line b { font: 500 13px var(--font-mono); color: var(--ink); }
+.card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow); }
+.card h2 { margin: 0; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); }
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.field > span { color: var(--muted); }
+.field input { font: 14px var(--font-mono); padding: 7px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); color: var(--ink); }
+.field input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.field input[aria-invalid="true"] { border-color: var(--danger); }
+.seg { display: flex; gap: 2px; padding: 3px; border-radius: 999px; border: 1px solid var(--line); background: var(--raised); }
+.seg button { flex: 1; padding: 5px 4px; font-size: 12.5px; border-radius: 999px; border: 0; background: transparent; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.hint { margin: 0; font-size: 12.5px; color: var(--muted); }
+.danger { padding: 7px 10px; border-radius: 10px; border: 1px solid var(--danger); background: transparent; color: var(--danger); cursor: pointer; }
+.danger:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.help { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 7px; font-size: 13px; color: var(--muted); }
+.help li::marker { color: var(--accent); }
+kbd { font: 11.5px var(--font-mono); padding: 0 5px; border: 1px solid var(--line); border-radius: 5px; background: var(--raised); color: var(--ink); }

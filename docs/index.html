@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Планировщик — документация</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Unbounded:wght@500&display=swap">
+<style>
+:root{--bg:#E9EDEB;--surface:#F7F9F8;--ink:#1C2322;--muted:#586663;--line:#D2D9D6;--chip:#DCE3E0;--accent:#2D6A62;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#121615;--surface:#1A1F1E;--ink:#E4EAE8;--muted:#97A5A1;--line:#2C3432;--chip:#2A3230;--accent:#74B6AC;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 "Golos Text",system-ui,"Segoe UI",sans-serif}
+.layout{display:grid;grid-template-columns:280px minmax(0,1fr);min-height:100vh}
+nav{position:sticky;top:0;height:100vh;overflow-y:auto;padding:24px 16px;border-right:1px solid var(--line);background:var(--surface)}
+.brand{font:500 18px/1.2 "Unbounded",sans-serif;margin:0 8px 4px}
+.built{margin:0 8px 18px;font-size:12px;color:var(--muted)}
+nav a{display:block;color:var(--ink);text-decoration:none;border-radius:8px;padding:5px 8px}
+nav a.l1{font-weight:600;margin-top:10px}
+nav a.l2{font-size:13.5px;color:var(--muted);padding-left:20px}
+nav a:hover{background:var(--chip)}
+nav a.on{background:var(--accent);color:#fff}
+@media (prefers-color-scheme:dark){nav a.on{color:#0E1614}}
+main{padding:32px 48px 80px;max-width:920px}
+section{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:8px 32px 24px;margin-bottom:20px}
+h1{font:500 26px/1.25 "Unbounded",sans-serif;letter-spacing:-.01em;margin:24px 0 12px}
+h2{font-size:18px;margin:28px 0 8px}
+h3{font-size:15.5px;margin:20px 0 6px}
+h1,h2{scroll-margin-top:16px}
+a{color:var(--accent)}
+code{font:13px "JetBrains Mono",Consolas,monospace;background:var(--chip);border-radius:5px;padding:1px 5px}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow-x:auto}
+pre code{background:none;padding:0}
+table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px}
+th,td{border-bottom:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+li{margin:3px 0}
+@media (max-width:800px){.layout{grid-template-columns:1fr}nav{position:static;height:auto}main{padding:16px}section{padding:4px 16px 16px}}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav aria-label="Оглавление">
+<p class="brand">Планировщик</p>
+<p class="built">Документация · собрана 28.10.2026</p>
+<a class="l1" href="#s1">Начало работы</a>
+<a class="l2" href="#s1-1">Запуск</a>
+<a class="l2" href="#s1-2">Другие команды</a>
+<a class="l2" href="#s1-3">Где хранятся данные</a>
+<a class="l1" href="#s2">Интерфейс</a>
+<a class="l2" href="#s2-1">План</a>
+<a class="l2" href="#s2-2">3D</a>
+<a class="l2" href="#s2-3">Тема</a>
+<a class="l2" href="#s2-4">Отмена</a>
+<a class="l1" href="#s3">Стены и комнаты</a>
+<a class="l2" href="#s3-1">Как вводить размеры</a>
+<a class="l2" href="#s3-2">Рисование стен</a>
+<a class="l2" href="#s3-3">Комнаты</a>
+<a class="l2" href="#s3-4">Толщина</a>
+<a class="l2" href="#s3-5">Выбор, перенос, правка</a>
+<a class="l2" href="#s3-6">Свойства стены</a>
+<a class="l2" href="#s3-7">Параметры проекта</a>
+<a class="l1" href="#s4">Горячие клавиши</a>
+<a class="l1" href="#s5">Устройство кода</a>
+<a class="l2" href="#s5-1">Стек</a>
+<a class="l2" href="#s5-2">Папки</a>
+<a class="l2" href="#s5-3">Модель данных</a>
+<a class="l2" href="#s5-4">Состояние и отмена</a>
+<a class="l2" href="#s5-5">План (SVG)</a>
+<a class="l2" href="#s5-6">3D</a>
+<a class="l2" href="#s5-7">Проверки</a>
+<a class="l1" href="#s6">История изменений</a>
+<a class="l2" href="#s6-1">28.10.2026 — выделение и перенос, новый дизайн, документация</a>
+<a class="l2" href="#s6-2">24.10.2026 — редактор стен, первая часть</a>
+<a class="l2" href="#s6-3">21.10.2026 — заготовка проекта</a>
+</nav>
+<main>
+<section><h1 id="s1">Начало работы</h1>
+<p>Планировщик — веб-приложение для планировки квартир. В нём строят стены произвольной формы, получают комнаты с площадями и сразу видят всё в 3D. Все размеры в метрической системе.</p>
+<h2 id="s1-1">Запуск</h2>
+<p>Нужен Node.js 22 или новее. В терминале, в папке проекта <code>D:\dev\planner</code>:</p>
+<pre><code class="language-bash">npm install      # один раз: поставить библиотеки
+npm run dev      # запустить приложение
+</code></pre>
+<p>Команда напишет адрес, обычно <code>http://localhost:5173</code>. Его нужно открыть в браузере. Пока сервер работает, изменения в коде сразу видны на странице. Остановить сервер — <code>Ctrl+C</code> в терминале.</p>
+<h3>Если <code>npm run dev</code> не запускается</h3>
+<ul>
+<li><strong>Ошибка <code>Missing script: &quot;dev&quot;</code>.</strong> Команда запущена не в той папке. Перейдите в проект командой <code>cd D:\dev\planner</code>.</li>
+<li><strong>Ошибка <code>running scripts is disabled</code>.</strong> PowerShell запрещает скрипты. Запустите <code>npm.cmd run dev</code> или переключите терминал VS Code на Git Bash.</li>
+<li><strong>Порт занят.</strong> Vite возьмёт следующий порт, например <code>5174</code>. Откройте адрес, который он напечатал.</li>
+</ul>
+<h2 id="s1-2">Другие команды</h2>
+<table>
+<thead>
+<tr>
+<th>Команда</th>
+<th>Что делает</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>npm test</code></td>
+<td>автоматические тесты</td>
+</tr>
+<tr>
+<td><code>npm run typecheck</code></td>
+<td>проверка типов TypeScript</td>
+</tr>
+<tr>
+<td><code>npm run build</code></td>
+<td>сборка готового приложения в папку <code>dist</code></td>
+</tr>
+<tr>
+<td><code>npm run docs</code></td>
+<td>собрать эту документацию в <code>docs/index.html</code></td>
+</tr>
+<tr>
+<td><code>npm run shot</code></td>
+<td>снимок запущенного приложения через Edge</td>
+</tr>
+<tr>
+<td><code>npm run check:walls</code></td>
+<td>нарисовать комнату 6,55 × 3,40 «руками» через Edge и проверить перенос</td>
+</tr>
+</tbody></table>
+<h2 id="s1-3">Где хранятся данные</h2>
+<p>Пока проект один, и он сохраняется в браузере сам при каждом изменении. Если очистить данные сайта в браузере, проект пропадёт. Список проектов и сохранение в файл будут на следующих этапах.</p>
+</section>
+<section><h1 id="s2">Интерфейс</h1>
+<p>Окно делится на четыре части:</p>
+<table>
+<thead>
+<tr>
+<th>Часть</th>
+<th>Что в ней</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Сверху</td>
+<td>название приложения, переключатель вида «План · План + 3D · 3D», кнопки «Отменить» и «Повторить»</td>
+</tr>
+<tr>
+<td>Слева</td>
+<td>инструменты: <strong>Выбор</strong> (<code>V</code>) и <strong>Стена</strong> (<code>W</code>). Буква в углу кнопки — горячая клавиша</td>
+</tr>
+<tr>
+<td>В центре</td>
+<td>план на белом листе и 3D-вид. Их можно показать рядом или по одному</td>
+</tr>
+<tr>
+<td>Справа</td>
+<td>панель свойств: название проекта, число помещений и общая площадь, свойства выбранного, параметры проекта, подсказки</td>
+</tr>
+</tbody></table>
+<h2 id="s2-1">План</h2>
+<ul>
+<li>Сетка: крупные линии через 1 м, мелкие через 10 см. Мелкие видны при приближении.</li>
+<li><strong>Колесо мыши</strong> меняет масштаб, точка под курсором остаётся на месте.</li>
+<li><strong>Правая или средняя кнопка мыши</strong> сдвигает вид.</li>
+<li>Подписи вдоль стен — их длины в метрах. В центре комнаты — её название и площадь.</li>
+</ul>
+<h2 id="s2-2">3D</h2>
+<ul>
+<li><strong>Перетаскивание</strong> вращает камеру, <strong>колесо</strong> меняет масштаб, <strong>правая кнопка</strong> сдвигает вид.</li>
+<li>Когда стен становится больше или меньше, камера сама вписывает всё построенное в окно.</li>
+<li>Выбранные стены подсвечены зелёным, как и на плане.</li>
+</ul>
+<h2 id="s2-3">Тема</h2>
+<p>Светлая или тёмная тема включается сама, по настройке системы. План всегда остаётся на белом листе, как чертёж.</p>
+<h2 id="s2-4">Отмена</h2>
+<p>Любое действие отменяется: <code>Ctrl+Z</code>, повтор — <code>Ctrl+Y</code> или <code>Ctrl+Shift+Z</code>. Перенос мышью отменяется целиком одним шагом. Помнятся последние 200 действий.</p>
+</section>
+<section><h1 id="s3">Стены и комнаты</h1>
+<h2 id="s3-1">Как вводить размеры</h2>
+<p>Все длины можно вводить в любой записи:</p>
+<table>
+<thead>
+<tr>
+<th>Ввод</th>
+<th>Что значит</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>340</code></td>
+<td>целое число без единиц — <strong>сантиметры</strong>: 3,40 м</td>
+</tr>
+<tr>
+<td><code>3,40</code> или <code>3.4</code></td>
+<td>дробное число без единиц — <strong>метры</strong></td>
+</tr>
+<tr>
+<td><code>340 см</code>, <code>3,4 м</code>, <code>3400 мм</code></td>
+<td>с единицей, по-русски или латиницей (<code>cm</code>, <code>m</code>, <code>mm</code>)</td>
+</tr>
+</tbody></table>
+<p>Точность — до миллиметра. Стены и проходы подписываются в метрах («6,55»), толщины — в сантиметрах («12 см»).</p>
+<h2 id="s3-2">Рисование стен</h2>
+<ol>
+<li>Включите инструмент <strong>Стена</strong>: кнопка слева или клавиша <code>W</code>.</li>
+<li>Кликните на плане первую точку. Если рядом есть угол, точка прилипнет к нему, иначе — к сетке через 5 см.</li>
+<li>Ведите мышь в нужную сторону. Направление прилипает к углам, кратным 15°.</li>
+<li>У конца рисуемой стены появится поле <strong>«Длина»</strong>, курсор уже в нём. Наберите длину и нажмите <code>Enter</code>. Можно и просто кликнуть: длина возьмётся по мыши, с точностью до сантиметра.</li>
+<li>Продолжайте следующую стену от последней точки.</li>
+<li>Чтобы <strong>замкнуть комнату</strong>, кликните в первую точку цепочки, она подсвечивается зелёным.</li>
+</ol>
+<p><code>Esc</code> стирает набранную длину, повторный <code>Esc</code> заканчивает цепочку, третий переключает на «Выбор». Если длина набрана с ошибкой, поле краснеет и стена не ставится.</p>
+<h2 id="s3-3">Комнаты</h2>
+<p>Замкнутый контур становится комнатой:</p>
+<ul>
+<li>у неё есть название «Комната 1», «Комната 2» и площадь;</li>
+<li><strong>толщина всех её стен сама уходит наружу</strong>. Линия, по которой вы рисовали, — это внутренняя сторона стены. Квартиру меряют рулеткой изнутри, поэтому введённые размеры — это размеры комнаты, а площадь считается по внутренней стороне;</li>
+<li>углы стыкуются «на ус», без щелей. Очень острые углы обрезаются прямо, чтобы стена не торчала далеко.</li>
+</ul>
+<h2 id="s3-4">Толщина</h2>
+<ul>
+<li>Новые стены получают <strong>«Толщину новых стен»</strong> из параметров проекта, по умолчанию 12 см.</li>
+<li>Толщину любой стены можно поменять в её свойствах.</li>
+<li><strong>«Толщина растёт»</strong>: у стены комнаты варианты «наружу», «внутрь» и «по центру», у отдельной стены — «в одну сторону», «в другую» и «по центру».</li>
+</ul>
+<h2 id="s3-5">Выбор, перенос, правка</h2>
+<p>Инструмент <strong>Выбор</strong> (<code>V</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Действие</th>
+<th>Как</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>выбрать стену</td>
+<td>клик по стене</td>
+</tr>
+<tr>
+<td>добавить или убрать стену из выбора</td>
+<td><code>Shift</code> + клик</td>
+</tr>
+<tr>
+<td>выбрать рамкой целиком попавшие стены</td>
+<td>тянуть по пустому месту <strong>слева направо</strong></td>
+</tr>
+<tr>
+<td>выбрать рамкой всё, чего она касается</td>
+<td>тянуть <strong>справа налево</strong> (рамка пунктирная)</td>
+</tr>
+<tr>
+<td>добавить рамкой к выбору</td>
+<td>рамка с <code>Shift</code></td>
+</tr>
+<tr>
+<td>выбрать всё</td>
+<td><code>Ctrl+A</code></td>
+</tr>
+<tr>
+<td>снять выбор</td>
+<td><code>Esc</code> или клик по пустому месту</td>
+</tr>
+<tr>
+<td>перенести выбранное</td>
+<td>тянуть любую из выбранных стен</td>
+</tr>
+<tr>
+<td>перенести один угол</td>
+<td>тянуть белый квадратик в углу выбранной стены. Угол прилипает к другим углам</td>
+</tr>
+<tr>
+<td>сдвинуть точно</td>
+<td>стрелки — на 1 см, <code>Shift</code> + стрелки — на 10 см</td>
+</tr>
+<tr>
+<td>удалить</td>
+<td><code>Delete</code> или кнопка в панели</td>
+</tr>
+</tbody></table>
+<p>Комнаты при переносе сохраняются, площадь пересчитывается сама. Если удалить стену комнаты, комната распадается. Углы, у которых не осталось стен, удаляются.</p>
+<h2 id="s3-6">Свойства стены</h2>
+<ul>
+<li><strong>Длина</strong> — по линии, на которой стену рисовали, у комнаты это внутренняя сторона. Новая длина двигает дальний конец стены, соседняя стена подстраивается.</li>
+<li><strong>Толщина</strong> и <strong>сторона толщины</strong>.</li>
+<li><strong>Удалить стену</strong>.</li>
+</ul>
+<p>Если выбрано несколько стен, можно задать <strong>толщину сразу всем</strong> или удалить их.</p>
+<h2 id="s3-7">Параметры проекта</h2>
+<ul>
+<li><strong>Высота потолка</strong> — высота всех стен в 3D, по умолчанию 2,70 м.</li>
+<li><strong>Толщина новых стен</strong>.</li>
+</ul>
+</section>
+<section><h1 id="s4">Горячие клавиши</h1>
+<table>
+<thead>
+<tr>
+<th>Клавиша</th>
+<th>Где</th>
+<th>Действие</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>V</code></td>
+<td>везде</td>
+<td>инструмент «Выбор»</td>
+</tr>
+<tr>
+<td><code>W</code></td>
+<td>везде</td>
+<td>инструмент «Стена»</td>
+</tr>
+<tr>
+<td><code>Ctrl+Z</code></td>
+<td>везде</td>
+<td>отменить</td>
+</tr>
+<tr>
+<td><code>Ctrl+Y</code>, <code>Ctrl+Shift+Z</code></td>
+<td>везде</td>
+<td>повторить</td>
+</tr>
+<tr>
+<td><code>Enter</code></td>
+<td>поле «Длина»</td>
+<td>поставить стену набранной длины</td>
+</tr>
+<tr>
+<td><code>Esc</code></td>
+<td>рисование</td>
+<td>стереть длину → закончить цепочку → перейти к «Выбору»</td>
+</tr>
+<tr>
+<td><code>Shift</code> + клик</td>
+<td>выбор</td>
+<td>добавить или убрать стену</td>
+</tr>
+<tr>
+<td><code>Ctrl+A</code></td>
+<td>выбор</td>
+<td>выбрать все стены</td>
+</tr>
+<tr>
+<td><code>Delete</code></td>
+<td>выбор</td>
+<td>удалить выбранное</td>
+</tr>
+<tr>
+<td>стрелки</td>
+<td>выбор</td>
+<td>сдвинуть выбранное на 1 см</td>
+</tr>
+<tr>
+<td><code>Shift</code> + стрелки</td>
+<td>выбор</td>
+<td>сдвинуть на 10 см</td>
+</tr>
+<tr>
+<td>колесо</td>
+<td>план и 3D</td>
+<td>масштаб</td>
+</tr>
+<tr>
+<td>правая или средняя кнопка</td>
+<td>план</td>
+<td>сдвинуть вид</td>
+</tr>
+</tbody></table>
+<p>Клавиши работают и в русской раскладке. Пока курсор стоит в поле ввода, буквы набираются в поле и не переключают инструменты.</p>
+</section>
+<section><h1 id="s5">Устройство кода</h1>
+<p>Раздел для разработки.</p>
+<h2 id="s5-1">Стек</h2>
+<table>
+<thead>
+<tr>
+<th>Что</th>
+<th>Чем</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>язык и сборка</td>
+<td>TypeScript 7, Vite 8</td>
+</tr>
+<tr>
+<td>интерфейс</td>
+<td>React 19</td>
+</tr>
+<tr>
+<td>3D</td>
+<td>three.js 0.186 через React Three Fiber 9 и drei 10</td>
+</tr>
+<tr>
+<td>состояние</td>
+<td>Zustand 5 + immer, отмена действий — zundo</td>
+</tr>
+<tr>
+<td>тесты</td>
+<td>Vitest; проверки «руками» — playwright-core через установленный Microsoft Edge</td>
+</tr>
+<tr>
+<td>документация</td>
+<td>Markdown в <code>docs/</code>, сайт собирает <code>scripts/build-docs.mjs</code> (marked)</td>
+</tr>
+</tbody></table>
+<p>Все библиотеки под лицензией MIT: их можно использовать в коммерческом продукте.</p>
+<h2 id="s5-2">Папки</h2>
+<pre><code>src/core/       модель и расчёты без интерфейса — сердце приложения, покрыто тестами
+  types.ts        модель проекта: узлы, стены, комнаты
+  geometry.ts     векторы, контур стены со стыками углов, площадь, сторона «внутрь»
+  ops.ts          операции: добавить узел или стену, замкнуть комнату, перенести, удалить, рамка
+  units.ts        разбор и форматирование длин
+src/store/      состояние редактора (editor.ts): проект, черновик переноса, инструмент, выбор, цепочка
+src/plan2d/     план (PlanView.tsx): отрисовка в SVG и все действия мышью и клавиатурой
+src/view3d/     3D-вид (Scene3D.tsx)
+src/ui/         панель свойств (Inspector.tsx), цвета темы (theme.ts)
+scripts/        снимок экрана, проверка стен, сборка документации
+docs/           эта документация
+</code></pre>
+<h2 id="s5-3">Модель данных</h2>
+<p>Стены образуют <strong>граф</strong>:</p>
+<ul>
+<li><strong>узлы</strong> (<code>nodes</code>) — точки углов;</li>
+<li><strong>стена</strong> (<code>walls</code>) соединяет два узла <code>a</code> и <code>b</code>, у неё есть толщина <code>thickness</code> и сторона толщины <code>side</code>;</li>
+<li><strong>комната</strong> (<code>rooms</code>) — список узлов по порядку обхода.</li>
+</ul>
+<p>Если сдвинуть узел, вместе с ним едут все стены, которые на нём сходятся.</p>
+<p>Все длины хранятся в <strong>метрах</strong>, округлённых до миллиметра. Координаты плана: <code>x</code> вправо, <code>y</code> вниз, как на экране.</p>
+<h3>Сторона толщины</h3>
+<ul>
+<li>Нормаль «влево» от направления <code>a→b</code> — это <code>perp(d) = (−dy, dx)</code>.</li>
+<li><code>side = 1</code> — толщина слева, <code>−1</code> — справа, <code>0</code> — поровну в обе стороны.</li>
+<li>Линия стены — та, по которой её рисовали и измеряли.</li>
+<li>При замыкании комнаты <code>addRoom</code> разворачивает толщину всех её стен наружу: площадь со знаком больше нуля означает, что внутренность лежит слева от обхода.</li>
+</ul>
+<h3>Стыки углов</h3>
+<p><code>wallOutline</code> строит контур стены. У каждого узла стены сортируются по углу. Левая грань каждой стены встречается с правой гранью следующей по кругу, точка их пересечения и есть угол «на ус». Если угол выступает больше чем на 4 толщины (очень острый угол), стена обрезается прямо.</p>
+<h2 id="s5-4">Состояние и отмена</h2>
+<ul>
+<li>В историю отмены (zundo) попадает <strong>только проект</strong>. Выбор, инструмент и черновик не отменяются.</li>
+<li><strong>Перенос мышью</strong>: пока тянут, в <code>preview</code> лежит копия проекта со сдвигом, и её рисуют план и 3D. При отпускании вызывается одно действие, и в историю попадает ровно один шаг. Хук <code>useShownProject()</code> возвращает черновик, если он есть, иначе проект.</li>
+<li>После отмены цепочка рисования сбрасывается, а из выбора убирается всё, чего больше нет.</li>
+<li><strong>Автосохранение</strong> — <code>localStorage</code>, ключ <code>planner.project</code>.</li>
+</ul>
+<h2 id="s5-5">План (SVG)</h2>
+<ul>
+<li>Внутри <code>&lt;g transform=&quot;translate scale&quot;&gt;</code> всё рисуется <strong>в метрах</strong>.</li>
+<li>Толщина линий не зависит от масштаба (<code>vector-effect: non-scaling-stroke</code>).</li>
+<li>Размеры текста и белых обводок задаются через <code>px = 1 / scale</code>: единица внутри плана — метр, а не пиксель.</li>
+</ul>
+<h2 id="s5-6">3D</h2>
+<ul>
+<li>Контур стены → <code>THREE.Shape</code> из точек <code>(x, −y)</code> → <code>ExtrudeGeometry</code> на высоту → поворот на −90° вокруг X. В итоге план <code>(x, y)</code> ложится в 3D как <code>(x, высота, y)</code>.</li>
+<li>Пол комнаты строится тем же способом через <code>ShapeGeometry</code>.</li>
+</ul>
+<h2 id="s5-7">Проверки</h2>
+<ul>
+<li><code>npm test</code>: единицы, стыки углов, площадь, перенос, рамка, удаление.</li>
+<li><code>npm run check:walls</code> при работающем приложении: рисует комнату вводом длин, замыкает, меняет толщину, выделяет рамкой, переносит группу и угол, снимает экран в <code>D:\dev-tools\planner\</code>.</li>
+<li>Подводные камни:<ul>
+<li>снимки через флаги Edge <code>--screenshot</code> неверно меряют холст 3D, поэтому снимать только через скрипты Playwright;</li>
+<li>Playwright набирает кириллицу без нажатий клавиш, поэтому в скриптах единицы пишутся латиницей.</li>
+</ul>
+</li>
+</ul>
+</section>
+<section><h1 id="s6">История изменений</h1>
+<p>Новое сверху.</p>
+<h2 id="s6-1">28.10.2026 — выделение и перенос, новый дизайн, документация</h2>
+<ul>
+<li>Выбор нескольких стен: <code>Shift</code> + клик, рамка (слева направо — целиком, справа налево — касание), <code>Ctrl+A</code>.</li>
+<li>Перенос мышью стены или группы и отдельного угла с прилипанием к другим углам. Отменяется одним шагом.</li>
+<li>Сдвиг стрелками на 1 см, со <code>Shift</code> — на 10 см. Удаление группы, общая толщина для нескольких стен.</li>
+<li>Поле «Длина» у конца рисуемой стены, курсор в нём сразу после каждой точки.</li>
+<li>Новый дизайн в стиле страницы квартиры: шрифты Golos и Unbounded, карточки, переключатель «План · План + 3D · 3D», тёмная тема.</li>
+<li>Документация: этот сайт (<code>npm run docs</code>).</li>
+</ul>
+<h2 id="s6-2">24.10.2026 — редактор стен, первая часть</h2>
+<ul>
+<li>Рисование стен цепочкой: клики или ввод длины, угол через 15°.</li>
+<li>Замыкание в комнату: площадь по внутренней стороне, толщина наружу, углы «на ус».</li>
+<li>Свойства стены: длина, толщина, сторона толщины, удаление. Параметры проекта: высота потолка, толщина новых стен.</li>
+<li>Отмена и повтор, автосохранение в браузере, 3D-вид.</li>
+</ul>
+<h2 id="s6-3">21.10.2026 — заготовка проекта</h2>
+<ul>
+<li>Vite, React, TypeScript, three.js. Разбор длин в любой записи («340», «3,40», «3400 мм»).</li>
+</ul>
+</section>
+
+</main>
+</div>
+<script>
+// подсветка раздела, который сейчас на экране
+const links=[...document.querySelectorAll('nav a')];
+const byId=Object.fromEntries(links.map(a=>[a.getAttribute('href').slice(1),a]));
+const io=new IntersectionObserver(es=>{for(const e of es)if(e.isIntersecting){links.forEach(a=>a.classList.remove('on'));byId[e.target.id]?.classList.add('on');}},{rootMargin:'0px 0px -70% 0px'});
+document.querySelectorAll('h1[id],h2[id]').forEach(h=>io.observe(h));
+</script>
+</body>
+</html>

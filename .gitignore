@@ -1,0 +1,15 @@
+# зависимости и сборка — восстанавливаются командами npm install / npm run build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# логи
+*.log
+npm-debug.log*
+
+# настройки только этого компьютера (путь к кэшу npm на диске D)
+.npmrc
+
+# системное
+.DS_Store
+Thumbs.db
