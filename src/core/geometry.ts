@@ -7,6 +7,7 @@ export const mul = (p: Point, k: number): Point => ({ x: p.x * k, y: p.y * k });
 export const len = (p: Point): number => Math.hypot(p.x, p.y);
 export const dist = (p: Point, q: Point): number => len(sub(p, q));
 export const cross = (p: Point, q: Point): number => p.x * q.y - p.y * q.x;
+export const dot = (p: Point, q: Point): number => p.x * q.x + p.y * q.y;
 /** Нормаль «влево» от направления: (-dy, dx). */
 export const perp = (p: Point): Point => ({ x: -p.y, y: p.x });
 export function norm(p: Point): Point {
@@ -20,6 +21,23 @@ export function intersect(p: Point, d: Point, q: Point, e: Point): Point | null 
   if (Math.abs(den) < 1e-9) return null;
   const s = cross(sub(q, p), e) / den;
   return add(p, mul(d, s));
+}
+
+/** Доля пути от a к b для ближайшей к p точки отрезка (0 — у a, 1 — у b). */
+export function segmentParam(a: Point, b: Point, p: Point): number {
+  const d = sub(b, a);
+  const l2 = dot(d, d);
+  return l2 > 0 ? Math.min(1, Math.max(0, dot(sub(p, a), d) / l2)) : 0;
+}
+
+/** Точка внутри многоугольника (подсчёт пересечений луча вправо). */
+export function pointInPolygon(p: Point, poly: Point[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i]!, b = poly[j]!;
+    if ((a.y > p.y) !== (b.y > p.y) && p.x < a.x + ((p.y - a.y) * (b.x - a.x)) / (b.y - a.y)) inside = !inside;
+  }
+  return inside;
 }
 
 // ---------- стены ----------
@@ -54,6 +72,8 @@ function endAt(project: Project, wall: Wall, nodeId: Id): WallEnd {
 
 /** Самый длинный допустимый выступ угла «на ус» — в толщинах стены. Острее — обрезаем прямо. */
 const MAX_MITER = 4;
+/** Две стены у узла — одна прямая, если угол между ними отличается от 180° меньше чем на ~0,8°. */
+export const STRAIGHT = 0.9999;
 
 /**
  * Углы стены у узла: точки её правой и левой граней (в системе направления от узла).
@@ -70,6 +90,8 @@ function cornersAt(project: Project, wall: Wall, nodeId: Id): { right: Point; le
   const n = perp(me.dir);
   const plain = { right: add(node, mul(n, me.right)), left: add(node, mul(n, me.left)) };
   if (ends.length < 2) return plain;
+  // стена идёт сквозь узел (Т-стык или просто разрезанная стена) — режем прямо, примыкающая упрётся в её грань
+  if (ends.some(e => e !== me && dot(e.dir, me.dir) < -STRAIGHT)) return plain;
 
   const next = ends[(i + 1) % ends.length]!;
   const prev = ends[(i - 1 + ends.length) % ends.length]!;
@@ -97,6 +119,32 @@ export function wallOutline(project: Project, wall: Wall): Point[] {
 // ---------- комнаты ----------
 export function roomPolygon(project: Project, room: Room): Point[] {
   return room.nodes.map(id => project.nodes[id]!);
+}
+
+/**
+ * Контур комнаты по внутренним граням стен: сторона сдвигается на толщину, если толщина растёт внутрь.
+ * По нему считаются площадь и пол — у комнат по обе стороны перегородки площадь не включает её толщину.
+ */
+export function roomInnerPolygon(project: Project, room: Room): Point[] {
+  const poly = roomPolygon(project, room);
+  const ccw = signedArea(poly) > 0; // внутренность слева от обхода
+  const n = poly.length;
+  // для каждой стороны: точка на внутренней грани и направление
+  const sides = poly.map((p, i) => {
+    const d = norm(sub(poly[(i + 1) % n]!, p));
+    const wall = wallBetween(project, room.nodes[i]!, room.nodes[(i + 1) % n]!);
+    let offset = 0;
+    if (wall) {
+      const [r, l] = wallOffsets(wall);
+      const forward = wall.a === room.nodes[i]; // стена нарисована по обходу комнаты
+      offset = ccw ? (forward ? l : -r) : (forward ? r : -l);
+    }
+    return { p: add(p, mul(perp(d), offset)), d };
+  });
+  return sides.map((cur, i) => {
+    const prev = sides[(i - 1 + n) % n]!;
+    return intersect(prev.p, prev.d, cur.p, cur.d) ?? cur.p;
+  });
 }
 
 /** Площадь со знаком (формула Гаусса). Больше нуля — внутренность по левую руку от обхода. */
