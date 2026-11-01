@@ -157,6 +157,11 @@ export function signedArea(poly: Point[]): number {
   return s / 2;
 }
 
+/** Длина замкнутого контура. */
+export function perimeter(poly: Point[]): number {
+  return poly.reduce((s, p, i) => s + dist(p, poly[(i + 1) % poly.length]!), 0);
+}
+
 export function centroid(poly: Point[]): Point {
   const a = signedArea(poly);
   if (Math.abs(a) < 1e-9) {

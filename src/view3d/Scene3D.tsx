@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Bounds, Grid, OrbitControls, useBounds } from '@react-three/drei';
 import * as THREE from 'three';
-import { roomPolygon, wallOutline } from '../core/geometry';
+import { roomInnerPolygon, wallOutline } from '../core/geometry';
 import type { Point, Project } from '../core/types';
 import { useEditor, useShownProject } from '../store/editor';
 import { useThemeColor } from '../ui/theme';
@@ -26,7 +26,7 @@ function useWallGeometries(project: Project) {
 
 function useFloorGeometries(project: Project) {
   return useMemo(() => Object.values(project.rooms).map(r => {
-    const g = new THREE.ShapeGeometry(shapeOf(roomPolygon(project, r)));
+    const g = new THREE.ShapeGeometry(shapeOf(roomInnerPolygon(project, r)));
     g.rotateX(-Math.PI / 2);
     return { id: r.id, g };
   }), [project]);

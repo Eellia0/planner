@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { roomInnerPolygon, roomPolygon, signedArea, wallLength, wallOutline } from './geometry';
+import { perimeter, roomInnerPolygon, roomPolygon, signedArea, wallLength, wallOutline } from './geometry';
 import {
-  addNode, addRoom, addWall, deleteWall, deleteWalls, moveNodes, nodesOfWalls, roomByPath, setWallLength, splitWall, wallNear, wallsInRect,
+  addNode, addRoom, addWall, deleteWall, deleteWalls, moveNodes, nodesOfWalls, roomAt, roomByPath, setWallLength, splitWall, wallNear, wallsInRect, wallsOfRoom,
 } from './ops';
 import { emptyProject, type Project } from './types';
 
@@ -166,5 +166,24 @@ describe('пристройка к разделённой комнате', () => 
     addWall(project, c1, p1); addWall(project, p1, p2); addWall(project, p2, c2);
     roomByPath(project, [c1, p1, p2, c2]);
     expect(Object.keys(project.rooms)).toHaveLength(3);
+  });
+});
+
+describe('выбор комнаты', () => {
+  it('клик по полу находит свою половину разделённой комнаты, мимо пола — ничего', () => {
+    const { project } = partitioned();
+    const left = roomAt(project, { x: 1, y: 1 }), right = roomAt(project, { x: 5, y: 1 });
+    expect(left).toBeDefined();
+    expect(right).toBeDefined();
+    expect(left).not.toBe(right);
+    expect(roomAt(project, { x: 3.06, y: 1 })).toBeUndefined(); // в толще перегородки (3–3,12)
+    expect(roomAt(project, { x: 8, y: 1 })).toBeUndefined();
+  });
+
+  it('стены комнаты и периметр по внутренним граням', () => {
+    const { project, walls } = room();
+    const r = Object.values(project.rooms)[0]!;
+    expect(wallsOfRoom(project, r).sort()).toEqual([...walls].sort());
+    near(perimeter(roomInnerPolygon(project, r)), 2 * (6.55 + 3.4));
   });
 });

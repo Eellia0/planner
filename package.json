@@ -11,6 +11,7 @@
     "test": "vitest run",
     "shot": "node scripts/screenshot.mjs",
     "check:walls": "node scripts/check-walls.mjs",
+    "check:tjunction": "node scripts/check-tjunction.mjs",
     "docs": "node scripts/build-docs.mjs"
   },
   "dependencies": {

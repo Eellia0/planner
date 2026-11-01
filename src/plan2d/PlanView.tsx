@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { add, centroid, dist, mul, norm, roomPolygon, signedArea, sub, wallLength, wallOutline } from '../core/geometry';
+import { add, centroid, dist, intersect, mul, norm, roomInnerPolygon, segmentParam, signedArea, sub, wallLength, wallOutline } from '../core/geometry';
 import * as ops from '../core/ops';
 import type { Id, Point, Project } from '../core/types';
 import { formatMeters, parseLength, round } from '../core/units';
@@ -11,13 +11,17 @@ interface View { s: number; ox: number; oy: number }
 /** Что сейчас тянут мышью в режиме «Выбор». */
 type Drag =
   | { kind: 'move'; start: Point; nodes: Id[]; moved: boolean }
-  | { kind: 'node'; start: Point; id: Id; moved: boolean }
+  | { kind: 'node'; start: Point; id: Id; moved: boolean; wall?: Id }
   | { kind: 'box'; start: Point; end: Point; add: boolean; moved: boolean };
 
 const SNAP_PX = 12;              // радиус прилипания к узлу, пикселей
 const GRID_SNAP = 0.05;          // шаг сетки для свободной точки, м
 const ANGLE_STEP = Math.PI / 12; // 15°
 const DRAG_PX = 3;               // меньше — это клик, а не перетаскивание
+const EXACT = 0.002;             // набранная длина попала на стену или угол точнее 2 мм — встаём в них
+
+/** Куда встанет точка: в существующий угол, на стену (Т-стык) или в свободное место. */
+interface Snap { p: Point; node?: Id; wall?: Id }
 
 const pts = (ps: Point[]) => ps.map(p => `${p.x},${p.y}`).join(' ');
 const round2 = (p: Point): Point => ({ x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100 });
@@ -48,7 +52,7 @@ export function PlanView() {
     if (e.key === 'Enter') {
       e.preventDefault();
       if (!typed || parseLength(typed) === null || !snap) return; // пусто или неразборчиво — не ставим
-      s.placePoint(snap.p, snap.node);
+      s.placePoint(snap.p, snap.node, snap.wall);
       setTyped('');
     } else if (e.key === 'Escape') {
       e.preventDefault();
@@ -72,18 +76,52 @@ export function PlanView() {
 
   // ---------- инструмент «Стена»: куда встанет следующая точка ----------
   const last = chain.length ? project.nodes[chain[chain.length - 1]!] : undefined;
-  const snap = useMemo(() => {
+  // считается и по курсору для отрисовки, и по месту клика: быстрый клик сразу после движения не должен попасть в старую точку
+  const snapAt = (cursor: Point | null): Snap | null => {
     if (tool !== 'wall' || !cursor) return null;
-    const near = ops.nodeNear(project, cursor, SNAP_PX / view.s);
-    if (near && near !== chain[chain.length - 1]) return { p: project.nodes[near]! as Point, node: near };
-    if (!last) return { p: { x: round(Math.round(cursor.x / GRID_SNAP) * GRID_SNAP), y: round(Math.round(cursor.y / GRID_SNAP) * GRID_SNAP) } };
-    // от последней точки: угол с шагом 15°, длина — набранная или до курсора с точностью 1 см
-    const d = sub(cursor, last);
+    const tol = SNAP_PX / view.s;
+    const lastId = chain[chain.length - 1];
+    // от последней точки направление прилипает к углам через 15°
+    const d = last ? sub(cursor, last) : { x: 0, y: 0 };
     const ang = Math.round(Math.atan2(d.y, d.x) / ANGLE_STEP) * ANGLE_STEP;
     const dir = { x: Math.cos(ang), y: Math.sin(ang) };
-    const length = parseLength(typed) ?? Math.max(0.01, Math.round(Math.abs(d.x * dir.x + d.y * dir.y) * 100) / 100);
+
+    const typedLength = parseLength(typed);
+    if (last && typedLength !== null) {
+      // длина набрана — точка ровно там; если она пришлась на угол или стену, встаём в них
+      const p = add(last, mul(dir, typedLength));
+      const node = ops.nodeNear(project, p, EXACT);
+      if (node && node !== lastId) return { p: project.nodes[node]!, node };
+      const onWall = ops.wallNear(project, p, EXACT, lastId);
+      if (onWall && dist(onWall.p, p) <= EXACT) return { p: onWall.p, wall: onWall.id };
+      return { p };
+    }
+
+    const near = ops.nodeNear(project, cursor, tol);
+    if (near && near !== lastId) return { p: project.nodes[near]!, node: near };
+    const onWall = ops.wallNear(project, cursor, tol, lastId);
+    if (onWall) {
+      const w = project.walls[onWall.id]!;
+      const a = project.nodes[w.a]!, b = project.nodes[w.b]!;
+      if (last) {
+        // стена под углом 15° упирается в эту стену — встаём точно в точку упора
+        const x = intersect(last, dir, a, sub(b, a));
+        const t = x ? segmentParam(a, b, x) : 0;
+        if (x && t > 0 && t < 1 && dist(x, cursor) <= 3 * tol && (x.x - last.x) * dir.x + (x.y - last.y) * dir.y > 0) {
+          return { p: { x: round(x.x), y: round(x.y) }, wall: w.id };
+        }
+      }
+      // иначе — проекция курсора на стену, расстояние от её начала с точностью 1 см
+      const along = Math.round(dist(a, onWall.p) * 100) / 100;
+      const p = add(a, mul(norm(sub(b, a)), along));
+      return { p: { x: round(p.x), y: round(p.y) }, wall: w.id };
+    }
+    if (!last) return { p: { x: round(Math.round(cursor.x / GRID_SNAP) * GRID_SNAP), y: round(Math.round(cursor.y / GRID_SNAP) * GRID_SNAP) } };
+    // длина — до курсора с точностью 1 см
+    const length = Math.max(0.01, Math.round(Math.abs(d.x * dir.x + d.y * dir.y) * 100) / 100);
     return { p: add(last, mul(dir, length)) };
-  }, [tool, cursor, project, view.s, chain, last, typed]);
+  };
+  const snap = snapAt(cursor);
 
   // ---------- клавиатура ----------
   useEffect(() => {
@@ -113,7 +151,7 @@ export function PlanView() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [typed, snap]);
+  }, [typed]);
 
   // ---------- мышь ----------
   const onWheel = (e: React.WheelEvent) => {
@@ -175,8 +213,12 @@ export function PlanView() {
       st.setPreview(draftWith(pr => ops.moveNodes(pr, d.nodes, delta)));
     } else if (d.kind === 'node') {
       const base = useEditor.getState().project;
-      const near = ops.nodeNear({ ...base, nodes: Object.fromEntries(Object.entries(base.nodes).filter(([id]) => id !== d.id)) }, p, SNAP_PX / view.s);
-      const to = near ? base.nodes[near]! : round2(p);
+      const tol = SNAP_PX / view.s;
+      const near = ops.nodeNear({ ...base, nodes: Object.fromEntries(Object.entries(base.nodes).filter(([id]) => id !== d.id)) }, p, tol);
+      // угол прилипает к другим углам, а если их рядом нет — к стенам (встанет в стену Т-стыком)
+      const onWall = near ? undefined : ops.wallNear(base, p, tol, d.id);
+      d.wall = onWall?.id;
+      const to = near ? base.nodes[near]! : onWall ? { x: round(onWall.p.x), y: round(onWall.p.y) } : round2(p);
       st.setPreview(draftWith(pr => ops.moveNode(pr, d.id, to)));
     } else {
       d.end = p;
@@ -189,7 +231,8 @@ export function PlanView() {
     if (pan.current) { pan.current = null; return; }
     if (e.button !== 0) return;
     if (tool === 'wall') {
-      if (snap) { st.placePoint(snap.p, snap.node); setTyped(''); }
+      const at = snapAt(toPlan(e.clientX, e.clientY));
+      if (at) { st.placePoint(at.p, at.node, at.wall); setTyped(''); }
       return;
     }
     const d = drag.current;
@@ -200,7 +243,7 @@ export function PlanView() {
       if (d.moved) st.moveNodes(d.nodes, round2(sub(p, d.start)));
     } else if (d.kind === 'node') {
       const preview = useEditor.getState().preview;
-      if (d.moved && preview) st.moveNode(d.id, preview.nodes[d.id]!);
+      if (d.moved && preview) st.moveNode(d.id, preview.nodes[d.id]!, d.wall);
     } else {
       setBox(null);
       if (!d.moved) { if (!d.add) st.setSelection([]); return; }
@@ -258,7 +301,7 @@ export function PlanView() {
         {grid}
 
         {rooms.map(r => {
-          const poly = roomPolygon(project, r);
+          const poly = roomInnerPolygon(project, r);
           const c = centroid(poly);
           return (
             <g key={r.id}>
@@ -274,7 +317,7 @@ export function PlanView() {
         {walls.map(w => (
           <polygon key={w.id} data-wall={w.id} points={pts(wallOutline(project, w))} className={`wall${selected.has(w.id) ? ' selected' : ''}`} />
         ))}
-        {walls.map(w => wallLabel(project.nodes[w.a]!, project.nodes[w.b]!, w.side, w.thickness, formatMeters(wallLength(project, w)), `l${w.id}`))}
+        {walls.filter(w => w.id !== snap?.wall).map(w => wallLabel(project.nodes[w.a]!, project.nodes[w.b]!, w.side, w.thickness, formatMeters(wallLength(project, w)), `l${w.id}`))}
 
         {handles.map(id => {
           const n = project.nodes[id]!;
@@ -290,7 +333,17 @@ export function PlanView() {
             {wallLabel(preview.a, preview.b, -1, project.defaultThickness, formatMeters(dist(preview.a, preview.b)), 'pl')}
           </g>
         )}
-        {tool === 'wall' && snap && <circle className="snap" cx={snap.p.x} cy={snap.p.y} r={5 * px} />}
+        {tool === 'wall' && snap && <circle className={`snap${snap.wall ? ' on-wall' : ''}`} cx={snap.p.x} cy={snap.p.y} r={5 * px} />}
+        {tool === 'wall' && snap?.wall && project.walls[snap.wall] && (() => {
+          // точка встаёт на стену — подписываем, сколько от неё до концов стены
+          const w = project.walls[snap.wall]!, a = project.nodes[w.a]!, b = project.nodes[w.b]!;
+          return (
+            <g className="snap-dims">
+              {wallLabel(a, snap.p, w.side, w.thickness, formatMeters(dist(a, snap.p)), 'sa')}
+              {wallLabel(snap.p, b, w.side, w.thickness, formatMeters(dist(snap.p, b)), 'sb')}
+            </g>
+          );
+        })()}
 
         {box && (
           <rect className={`marquee${box.b.x < box.a.x ? ' crossing' : ''}`}

@@ -18,13 +18,17 @@ interface EditorState {
 
   setTool: (tool: Tool) => void;
   setSelection: (ids: Id[]) => void;
-  /** Поставить точку цепочки: к существующему узлу (если рядом) или новую. Замыкает комнату, если попали в начало. */
-  placePoint: (p: Point, snapNode?: Id) => void;
+  /**
+   * Поставить точку цепочки: в существующий узел, на стену (Т-стык — стена разбивается) или новую.
+   * Попали в начало — комната замкнута. Упёрлись в существующую стену или угол — цепочка закончена.
+   */
+  placePoint: (p: Point, snapNode?: Id, snapWall?: Id) => void;
   endChain: () => void;
   /** Перенос: пока тянут — черновик, по отпусканию — одно действие в истории. */
   setPreview: (p: Project | null) => void;
   moveNodes: (ids: Id[], delta: Point) => void;
-  moveNode: (id: Id, p: Point) => void;
+  /** Перенести угол; если отпустили на стене — встаёт в неё Т-стыком. */
+  moveNode: (id: Id, p: Point, onWall?: Id) => void;
   setWallLength: (id: Id, length: number) => void;
   setWallThickness: (ids: Id[], thickness: number) => void;
   setWallSide: (id: Id, side: WallSide) => void;
@@ -56,15 +60,20 @@ export const useEditor = create<EditorState>()(
       setTool: tool => set(s => { s.tool = tool; s.chain = []; if (tool === 'wall') s.selection = []; }),
       setSelection: ids => set(s => { s.selection = ids; }),
 
-      placePoint: (p, snapNode) => set(s => {
+      placePoint: (p, snapNode, snapWall) => set(s => {
         const pr = s.project;
-        const id = snapNode ?? ops.addNode(pr, p);
         const last = s.chain[s.chain.length - 1];
-        if (last === id) return; // повторный клик в ту же точку
+        if (snapNode && last === snapNode) return; // повторный клик в ту же точку
+        const existing = snapNode ?? (snapWall && pr.walls[snapWall] ? ops.splitWall(pr, snapWall, p) : undefined);
+        const id = existing ?? ops.addNode(pr, p);
         if (last) ops.addWall(pr, last, id);
-        // попали в начало цепочки — контур замкнут, получилась комната
         if (s.chain.length >= 3 && id === s.chain[0]) {
+          // попали в начало цепочки — контур замкнут, получилась комната
           ops.addRoom(pr, s.chain);
+          s.chain = [];
+        } else if (last && existing) {
+          // упёрлись в стену или угол: цепочка закончена, а если она соединила две точки комнаты — делим или пристраиваем
+          ops.roomByPath(pr, [...s.chain, id]);
           s.chain = [];
         } else {
           s.chain.push(id);
@@ -75,7 +84,11 @@ export const useEditor = create<EditorState>()(
 
       setPreview: p => set(s => { s.preview = p; }),
       moveNodes: (ids, delta) => set(s => { s.preview = null; ops.moveNodes(s.project, ids, delta); }),
-      moveNode: (id, p) => set(s => { s.preview = null; ops.moveNode(s.project, id, p); }),
+      moveNode: (id, p, onWall) => set(s => {
+        s.preview = null;
+        ops.moveNode(s.project, id, p);
+        if (onWall && s.project.walls[onWall]) ops.splitWall(s.project, onWall, p, id);
+      }),
       setWallLength: (id, length) => set(s => {
         const w = s.project.walls[id];
         if (w) ops.setWallLength(s.project, w, length);
@@ -89,8 +102,8 @@ export const useEditor = create<EditorState>()(
         if (w) w.side = side;
       }),
       deleteWalls: ids => set(s => {
-        for (const id of ids) ops.deleteWall(s.project, id);
-        s.selection = s.selection.filter(id => !ids.includes(id));
+        ops.deleteWalls(s.project, ids);
+        s.selection = s.selection.filter(id => s.project.walls[id]);
       }),
       setDefaultThickness: t => set(s => { if (t > 0) s.project.defaultThickness = t; }),
       setCeilingHeight: h => set(s => { if (h > 0) s.project.ceilingHeight = h; }),

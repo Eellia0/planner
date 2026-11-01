@@ -101,6 +101,7 @@ button { font: inherit; color: inherit; }
 .handle:hover { fill: #2D6A62; }
 .preview line { stroke: #2D6A62; stroke-opacity: .45; stroke-linecap: butt; }
 .snap { fill: none; stroke: #2D6A62; stroke-width: 2; pointer-events: none; }
+.snap.on-wall { fill: #2D6A62; fill-opacity: .25; }
 .marquee { fill: rgba(45, 106, 98, .08); stroke: #2D6A62; stroke-width: 1; pointer-events: none; }
 .marquee.crossing { stroke-dasharray: 5 4; fill: rgba(45, 106, 98, .05); }
 .plan-empty { font: 500 14px var(--font-body); fill: #586663; }

@@ -1,6 +1,7 @@
 // Операции над проектом. Меняют проект на месте — в хранилище их вызывают внутри immer, поэтому это безопасно.
 import {
-  add, dist, dot, interiorSide, mul, norm, pointInPolygon, roomPolygon, roomsOfWall, segmentParam, signedArea, STRAIGHT, sub, wallBetween,
+  add, dist, dot, interiorSide, mul, norm, pointInPolygon, roomInnerPolygon, roomPolygon, roomsOfWall, segmentParam, signedArea, STRAIGHT, sub,
+  wallBetween,
 } from './geometry';
 import { newId, type Id, type Point, type Project, type Room, type Wall, type WallSide } from './types';
 import { round } from './units';
@@ -153,6 +154,24 @@ export function moveNodes(project: Project, ids: Iterable<Id>, delta: Point): vo
     const n = project.nodes[id];
     if (n) { n.x = round(n.x + delta.x); n.y = round(n.y + delta.y); }
   }
+}
+
+/** Комната, в пол которой попала точка. Если подошли несколько (одна внутри другой) — меньшая. */
+export function roomAt(project: Project, p: Point): Id | undefined {
+  let best: Id | undefined, bestArea = Infinity;
+  for (const r of Object.values(project.rooms)) {
+    const poly = roomInnerPolygon(project, r);
+    const area = Math.abs(signedArea(poly));
+    if (area < bestArea && pointInPolygon(p, poly)) { best = r.id; bestArea = area; }
+  }
+  return best;
+}
+
+/** Стены по контуру комнаты. */
+export function wallsOfRoom(project: Project, room: Room): Id[] {
+  return room.nodes
+    .map((id, i) => wallBetween(project, id, room.nodes[(i + 1) % room.nodes.length]!)?.id)
+    .filter(id => id !== undefined);
 }
 
 /** Узлы выбранных стен. */

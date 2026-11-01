@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { interiorSide, roomPolygon, roomsOfWall, signedArea, wallLength } from '../core/geometry';
+import { interiorSide, roomInnerPolygon, roomsOfWall, signedArea, wallLength } from '../core/geometry';
 import type { WallSide } from '../core/types';
 import { formatCm, formatMeters, parseLength } from '../core/units';
 import { useEditor } from '../store/editor';
@@ -39,14 +39,16 @@ export function Inspector() {
   const walls = selection.map(id => project.walls[id]).filter(w => !!w);
   const wall = walls.length === 1 ? walls[0] : undefined;
 
-  const room = wall ? roomsOfWall(project, wall)[0] : undefined;
+  // «наружу» и «внутрь» есть только у стены одной комнаты; у перегородки между двумя — просто стороны
+  const wallRooms = wall ? roomsOfWall(project, wall) : [];
+  const room = wallRooms.length === 1 ? wallRooms[0] : undefined;
   const inside = wall && room ? interiorSide(project, room, wall) : 1;
   const sides: [WallSide, string][] = room
     ? [[(-inside) as WallSide, 'наружу'], [inside, 'внутрь'], [0, 'по центру']]
     : [[-1, 'в одну сторону'], [1, 'в другую'], [0, 'по центру']];
 
   const rooms = Object.values(project.rooms);
-  const total = rooms.reduce((s, r) => s + Math.abs(signedArea(roomPolygon(project, r))), 0);
+  const total = rooms.reduce((s, r) => s + Math.abs(signedArea(roomInnerPolygon(project, r))), 0);
   const sameThickness = walls.length && walls.every(w => w.thickness === walls[0]!.thickness) ? walls[0]!.thickness : null;
 
   return (
