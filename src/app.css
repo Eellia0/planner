@@ -88,6 +88,8 @@ button { font: inherit; color: inherit; }
 .grid-minor { stroke: #F0F3F2; stroke-width: 1; }
 .grid-major { stroke: #D9E0DD; stroke-width: 1; }
 .room-floor { fill: #F6F0E7; stroke: none; }
+.room-floor.selected { fill: #DCEBE7; }
+.room-name, .room-area { pointer-events: none; }
 .room-name { font-family: var(--font-body); font-weight: 600; fill: #1C2322; }
 .room-area { font-family: var(--font-mono); fill: #586663; }
 .wall { fill: #3A403E; stroke: #1C2322; stroke-width: 1; }
@@ -98,6 +100,7 @@ button { font: inherit; color: inherit; }
 .node { fill: #FFFFFF; stroke: #586663; stroke-width: 1.5; pointer-events: none; }
 .node.close { fill: #2D6A62; stroke: #2D6A62; }
 .handle { fill: #FFFFFF; stroke: #2D6A62; stroke-width: 2; cursor: grab; }
+.handle.anchor { fill: #2D6A62; }
 .handle:hover { fill: #2D6A62; }
 .preview line { stroke: #2D6A62; stroke-opacity: .45; stroke-linecap: butt; }
 .snap { fill: none; stroke: #2D6A62; stroke-width: 2; pointer-events: none; }
@@ -120,6 +123,9 @@ button { font: inherit; color: inherit; }
 .length-box input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: 600 15px var(--font-mono); color: #1C2322; }
 .length-box input::placeholder { color: #9AA6A2; font-weight: 400; }
 .length-box.bad { border-color: #B4532A; }
+.length-box label { display: flex; align-items: center; gap: 8px; flex: 1.4; min-width: 0; height: 100%; }
+.length-box label.angle { flex: 1; padding-left: 10px; border-left: 1px solid #D2D9D6; }
+.length-box input[aria-invalid="true"] { color: #B4532A; }
 
 /* ---------- панель свойств ---------- */
 .inspector { overflow-y: auto; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
@@ -135,12 +141,15 @@ button { font: inherit; color: inherit; }
 .field input { font: 14px var(--font-mono); padding: 7px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); color: var(--ink); }
 .field input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
 .field input[aria-invalid="true"] { border-color: var(--danger); }
+.field input.text { font: 14px var(--font-body); }
 .seg { display: flex; gap: 2px; padding: 3px; border-radius: 999px; border: 1px solid var(--line); background: var(--raised); }
 .seg button { flex: 1; padding: 5px 4px; font-size: 12.5px; border-radius: 999px; border: 0; background: transparent; cursor: pointer; }
 .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
 .hint { margin: 0; font-size: 12.5px; color: var(--muted); }
 .danger { padding: 7px 10px; border-radius: 10px; border: 1px solid var(--danger); background: transparent; color: var(--danger); cursor: pointer; }
 .danger:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.ghost { padding: 7px 10px; border-radius: 10px; border: 1px solid var(--line); background: transparent; cursor: pointer; }
+.ghost:hover { border-color: var(--accent); }
 .help { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 7px; font-size: 13px; color: var(--muted); }
 .help li::marker { color: var(--accent); }
 kbd { font: 11.5px var(--font-mono); padding: 0 5px; border: 1px solid var(--line); border-radius: 5px; background: var(--raised); color: var(--ink); }

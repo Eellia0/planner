@@ -33,3 +33,15 @@ export function formatCm(meters: number): string {
   const cm = Math.round(meters * 1000) / 10;
   return Number.isInteger(cm) ? String(cm) : cm.toFixed(1).replace('.', ',');
 }
+
+/** Угол в градусах: «30», «22,5», «-45», «135°». Возвращает градусы или null, если разобрать не удалось. */
+export function parseAngle(input: string): number | null {
+  const m = /^(-?\d+(?:[.,]\d+)?)°?$/.exec(input.trim().replace(/\s+/g, ''));
+  return m ? Number(m[1]!.replace(',', '.')) : null;
+}
+
+/** Угол для подписи: «90°», «22,5°». */
+export function formatAngle(deg: number): string {
+  const d = Math.round(deg * 10) / 10;
+  return `${String(d).replace('.', ',')}°`;
+}

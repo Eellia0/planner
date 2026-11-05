@@ -50,14 +50,20 @@ function newRoom(project: Project, nodes: Id[], name?: string): Room {
   return room;
 }
 
+/** Удалить узлы, на которые не опирается ни одна стена. */
+export function dropLooseNodes(project: Project): void {
+  const used = new Set(Object.values(project.walls).flatMap(w => [w.a, w.b]));
+  for (const id of Object.keys(project.nodes)) if (!used.has(id)) delete project.nodes[id];
+}
+
 /**
  * Стена, к линии которой точка ближе tol (плюс толщина стены), и ближайшая точка на этой линии.
- * У самых концов стены не ищет — там угол, к нему прилипают отдельно. Стены узла skip пропускает.
+ * У самых концов стены не ищет — там угол, к нему прилипают отдельно. Стены узла skip и стену skipWall пропускает.
  */
-export function wallNear(project: Project, p: Point, tol: number, skip?: Id): { id: Id; p: Point } | undefined {
+export function wallNear(project: Project, p: Point, tol: number, skip?: Id, skipWall?: Id): { id: Id; p: Point } | undefined {
   let best: { id: Id; p: Point } | undefined, bestD = Infinity;
   for (const w of Object.values(project.walls)) {
-    if (w.a === skip || w.b === skip) continue;
+    if (w.a === skip || w.b === skip || w.id === skipWall) continue;
     const a = project.nodes[w.a]!, b = project.nodes[w.b]!;
     const q = add(a, mul(sub(b, a), segmentParam(a, b, p)));
     if (dist(q, a) < 0.005 || dist(q, b) < 0.005) continue;
@@ -131,14 +137,27 @@ export function roomByPath(project: Project, path: Id[]): Id | undefined {
   return addRoom(project, area(one) < area(two) ? one : two);
 }
 
-/** Новая длина стены: узел a стоит, узел b сдвигается вдоль стены. Соседние стены b подстраиваются. */
-export function setWallLength(project: Project, wall: Wall, length: number): void {
-  const a = project.nodes[wall.a]!, b = project.nodes[wall.b]!;
-  const dir = norm(sub(b, a));
+/**
+ * Новая длина стены: угол fixed стоит (по умолчанию a), другой сдвигается вдоль стены.
+ * Если у сдвигаемого угла ровно одна стена под углом (продолжения по прямой не в счёт), она переезжает параллельно
+ * целиком — прямоугольная комната остаётся прямоугольной, перегородка в Т-стыке едет вместе с углом.
+ * Если таких стен нет или их несколько, сдвигается только угол.
+ */
+export function setWallLength(project: Project, wall: Wall, length: number, fixed: Id = wall.a): void {
+  const movingId = fixed === wall.a ? wall.b : wall.a;
+  const from = project.nodes[fixed]!, moving = project.nodes[movingId]!;
+  const dir = norm(sub(moving, from));
   if (length <= 0 || (dir.x === 0 && dir.y === 0)) return;
-  const p = add(a, mul(dir, length));
-  b.x = round(p.x);
-  b.y = round(p.y);
+  const delta = sub(add(from, mul(dir, length)), moving);
+
+  // дальние концы соседних стен у сдвигаемого угла, кроме идущих по прямой
+  const across = Object.values(project.walls)
+    .filter(w => w.id !== wall.id && (w.a === movingId || w.b === movingId))
+    .map(w => (w.a === movingId ? w.b : w.a))
+    .filter(id => Math.abs(dot(dir, norm(sub(project.nodes[id]!, moving)))) <= STRAIGHT);
+  const moved = [movingId];
+  if (across.length === 1 && across[0] !== fixed) moved.push(across[0]!);
+  moveNodes(project, moved, delta);
 }
 
 export function moveNode(project: Project, id: Id, p: Point): void {

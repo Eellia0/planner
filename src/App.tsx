@@ -25,7 +25,8 @@ export function App() {
       if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'я')) { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
       if ((e.ctrlKey || e.metaKey) && (k === 'y' || k === 'н')) { e.preventDefault(); redo(); return; }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
-      if (useEditor.getState().chain.length) return; // во время рисования буквы не переключают инструмент
+      const s = useEditor.getState();
+      if (s.chain.length || s.start) return; // во время рисования буквы не переключают инструмент
       if (k === 'v' || k === 'м') setTool('select');
       if (k === 'w' || k === 'ц') setTool('wall');
     };

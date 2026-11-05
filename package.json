@@ -12,6 +12,9 @@
     "shot": "node scripts/screenshot.mjs",
     "check:walls": "node scripts/check-walls.mjs",
     "check:tjunction": "node scripts/check-tjunction.mjs",
+    "check:rooms": "node scripts/check-rooms.mjs",
+    "check:length": "node scripts/check-length-angle.mjs",
+    "check:projects": "node scripts/check-projects.mjs",
     "docs": "node scripts/build-docs.mjs"
   },
   "dependencies": {

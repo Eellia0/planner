@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { perimeter, roomInnerPolygon, roomPolygon, signedArea, wallLength, wallOutline } from './geometry';
 import {
-  addNode, addRoom, addWall, deleteWall, deleteWalls, moveNodes, nodesOfWalls, roomAt, roomByPath, setWallLength, splitWall, wallNear, wallsInRect, wallsOfRoom,
+  addNode, addRoom, addWall, deleteWall, deleteWalls, dropLooseNodes, moveNodes, nodesOfWalls, roomAt, roomByPath, setWallLength, splitWall, wallNear, wallsInRect, wallsOfRoom,
 } from './ops';
 import { emptyProject, type Project } from './types';
 
@@ -48,11 +48,41 @@ describe('комната из четырёх стен', () => {
 });
 
 describe('правка', () => {
-  it('новая длина сдвигает дальний угол', () => {
+  it('новая длина: угол a стоит, соседняя стена переезжает параллельно, комната остаётся прямоугольной', () => {
     const { project, walls } = room();
-    const w = project.walls[walls[0]!]!;
+    const w = project.walls[walls[0]!]!; // верх, от (0; 0) к (6,55; 0)
     setWallLength(project, w, 7);
     near(wallLength(project, w), 7);
+    near(wallLength(project, project.walls[walls[1]!]!), 3.4); // правая стена той же длины
+    near(wallLength(project, project.walls[walls[2]!]!), 7);   // низ вытянулся вместе с верхом
+    near(Math.abs(signedArea(roomPolygon(project, Object.values(project.rooms)[0]!))), 7 * 3.4);
+  });
+
+  it('новая длина: стоит выбранный угол b, переезжает левая стена', () => {
+    const { project, walls } = room();
+    const w = project.walls[walls[0]!]!;
+    setWallLength(project, w, 6, w.b);
+    near(project.nodes[w.b]!.x, 6.55);
+    near(project.nodes[w.a]!.x, 0.55);
+    near(project.nodes[project.walls[walls[3]!]!.a]!.x, 0.55); // нижний левый угол тоже
+  });
+
+  it('новая длина отдельной стены и продолжения по прямой двигает только угол', () => {
+    const project = emptyProject();
+    const a = addNode(project, { x: 0, y: 0 }), b = addNode(project, { x: 2, y: 0 }), c = addNode(project, { x: 5, y: 0 });
+    const w = addWall(project, a, b);
+    addWall(project, b, c);
+    setWallLength(project, project.walls[w]!, 2.5);
+    near(project.nodes[b]!.x, 2.5);
+    near(project.nodes[c]!.x, 5);
+  });
+
+  it('новая длина части стены с перегородкой: перегородка едет параллельно', () => {
+    const { project, top, bottom } = partitioned();
+    const left = Object.values(project.walls).find(w => w.b === top && project.nodes[w.a]!.x === 0)!;
+    setWallLength(project, left, 4);
+    near(project.nodes[top]!.x, 4);
+    near(project.nodes[bottom]!.x, 4);
   });
 
   it('перенос группы сдвигает углы, комната сохраняет площадь', () => {
@@ -185,5 +215,14 @@ describe('выбор комнаты', () => {
     const r = Object.values(project.rooms)[0]!;
     expect(wallsOfRoom(project, r).sort()).toEqual([...walls].sort());
     near(perimeter(roomInnerPolygon(project, r)), 2 * (6.55 + 3.4));
+  });
+});
+
+describe('одинокие точки', () => {
+  it('узлы без стен удаляются, узлы стен остаются', () => {
+    const { project } = room();
+    addNode(project, { x: 10, y: 10 });
+    dropLooseNodes(project);
+    expect(Object.keys(project.nodes)).toHaveLength(4);
   });
 });

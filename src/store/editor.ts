@@ -1,10 +1,13 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { temporal } from 'zundo';
+import { dist } from '../core/geometry';
 import * as ops from '../core/ops';
 import { emptyProject, type Id, type Point, type Project, type WallSide } from '../core/types';
 
 export type Tool = 'select' | 'wall';
+/** Куда встанет первая точка: в угол, на стену или в свободное место. */
+export interface ChainStart { p: Point; node?: Id; wall?: Id }
 
 interface EditorState {
   project: Project;
@@ -13,11 +16,20 @@ interface EditorState {
   tool: Tool;
   /** Выбранные стены. */
   selection: Id[];
+  /** Выбранная комната (тогда стены не выбраны). */
+  room: Id | null;
+  /** Угол выбранной стены, который стоит на месте при новой длине: ближний к месту клика. */
+  anchor: Id | null;
   /** Узлы рисуемой сейчас цепочки стен. */
   chain: Id[];
+  /** Первая точка цепочки: в проект попадает только вместе с первой стеной, чтобы не оставалось одиноких точек. */
+  start: ChainStart | null;
 
   setTool: (tool: Tool) => void;
   setSelection: (ids: Id[]) => void;
+  setAnchor: (id: Id | null) => void;
+  selectRoom: (id: Id | null) => void;
+  renameRoom: (id: Id, name: string) => void;
   /**
    * Поставить точку цепочки: в существующий узел, на стену (Т-стык — стена разбивается) или новую.
    * Попали в начало — комната замкнута. Упёрлись в существующую стену или угол — цепочка закончена.
@@ -43,7 +55,11 @@ const STORAGE_KEY = 'planner.project';
 function loadProject(): Project {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as Project;
+    if (raw) {
+      const project = JSON.parse(raw) as Project;
+      ops.dropLooseNodes(project); // точки без стен оставались от брошенного начала цепочки
+      return project;
+    }
   } catch { /* хранилище недоступно или испорчено — начинаем с пустого */ }
   return emptyProject();
 }
@@ -55,16 +71,34 @@ export const useEditor = create<EditorState>()(
       preview: null,
       tool: 'select',
       selection: [],
+      room: null,
+      anchor: null,
       chain: [],
+      start: null,
 
-      setTool: tool => set(s => { s.tool = tool; s.chain = []; if (tool === 'wall') s.selection = []; }),
-      setSelection: ids => set(s => { s.selection = ids; }),
+      setTool: tool => set(s => { s.tool = tool; s.chain = []; s.start = null; if (tool === 'wall') { s.selection = []; s.room = null; } }),
+      setSelection: ids => set(s => { s.selection = ids; s.room = null; }),
+      setAnchor: id => set(s => { s.anchor = id; }),
+      selectRoom: id => set(s => { s.room = id; s.selection = []; }),
+      renameRoom: (id, name) => set(s => {
+        const r = s.project.rooms[id];
+        if (r && name.trim()) r.name = name.trim();
+      }),
 
       placePoint: (p, snapNode, snapWall) => set(s => {
         const pr = s.project;
+        if (!s.chain.length && !s.start) { s.start = { p, node: snapNode, wall: snapWall }; return; }
+        // узел в точке: существующий угол, Т-стык на стене или новый
+        const nodeAt = (q: Point, node?: Id, wall?: Id) => node ?? (wall && pr.walls[wall] ? ops.splitWall(pr, wall, q) : undefined);
+        if (s.start) {
+          if ((snapNode && snapNode === s.start.node) || dist(p, s.start.p) < 0.005) return; // повторный клик в начало
+          // первая стена: теперь можно ставить и начальную точку
+          s.chain = [nodeAt(s.start.p, s.start.node, s.start.wall) ?? ops.addNode(pr, s.start.p)];
+          s.start = null;
+        }
         const last = s.chain[s.chain.length - 1];
         if (snapNode && last === snapNode) return; // повторный клик в ту же точку
-        const existing = snapNode ?? (snapWall && pr.walls[snapWall] ? ops.splitWall(pr, snapWall, p) : undefined);
+        const existing = nodeAt(p, snapNode, snapWall);
         const id = existing ?? ops.addNode(pr, p);
         if (last) ops.addWall(pr, last, id);
         if (s.chain.length >= 3 && id === s.chain[0]) {
@@ -80,7 +114,7 @@ export const useEditor = create<EditorState>()(
         }
         pr.updatedAt = Date.now();
       }),
-      endChain: () => set(s => { s.chain = []; }),
+      endChain: () => set(s => { s.chain = []; s.start = null; }),
 
       setPreview: p => set(s => { s.preview = p; }),
       moveNodes: (ids, delta) => set(s => { s.preview = null; ops.moveNodes(s.project, ids, delta); }),
@@ -91,7 +125,7 @@ export const useEditor = create<EditorState>()(
       }),
       setWallLength: (id, length) => set(s => {
         const w = s.project.walls[id];
-        if (w) ops.setWallLength(s.project, w, length);
+        if (w) ops.setWallLength(s.project, w, length, s.anchor === w.b ? w.b : w.a);
       }),
       setWallThickness: (ids, t) => set(s => {
         if (t <= 0) return;
@@ -104,10 +138,11 @@ export const useEditor = create<EditorState>()(
       deleteWalls: ids => set(s => {
         ops.deleteWalls(s.project, ids);
         s.selection = s.selection.filter(id => s.project.walls[id]);
+        if (s.room && !s.project.rooms[s.room]) s.room = null;
       }),
       setDefaultThickness: t => set(s => { if (t > 0) s.project.defaultThickness = t; }),
       setCeilingHeight: h => set(s => { if (h > 0) s.project.ceilingHeight = h; }),
-      newProject: () => set(s => { s.project = emptyProject(); s.chain = []; s.selection = []; }),
+      newProject: () => set(s => { s.project = emptyProject(); s.chain = []; s.start = null; s.selection = []; s.room = null; }),
     })),
     {
       // в историю отмены попадает только сам проект: выбор, инструмент и черновик не отменяются
@@ -121,7 +156,11 @@ export const useEditor = create<EditorState>()(
 // после отмены или повтора рисуемая цепочка и выбор могут ссылаться на то, чего уже нет
 function afterHistory() {
   const s = useEditor.getState();
-  useEditor.setState({ chain: [], preview: null, selection: s.selection.filter(id => s.project.walls[id]) });
+  useEditor.setState({
+    chain: [], start: null, preview: null,
+    selection: s.selection.filter(id => s.project.walls[id]),
+    room: s.room && s.project.rooms[s.room] ? s.room : null,
+  });
 }
 export const undo = () => { useEditor.temporal.getState().undo(); afterHistory(); };
 export const redo = () => { useEditor.temporal.getState().redo(); afterHistory(); };

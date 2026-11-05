@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { add, centroid, dist, intersect, mul, norm, roomInnerPolygon, segmentParam, signedArea, sub, wallLength, wallOutline } from '../core/geometry';
 import * as ops from '../core/ops';
-import type { Id, Point, Project } from '../core/types';
-import { formatMeters, parseLength, round } from '../core/units';
+import type { Id, Point, Project, Wall } from '../core/types';
+import { formatAngle, formatMeters, parseAngle, parseLength, round } from '../core/units';
 import { useEditor, useShownProject } from '../store/editor';
 
 // План сверху. Всё внутри рисуется в метрах; вид (масштаб и сдвиг) переводит метры в пиксели.
@@ -31,7 +31,11 @@ export function PlanView() {
   const project = useShownProject();
   const tool = useEditor(s => s.tool);
   const chain = useEditor(s => s.chain);
+  const start = useEditor(s => s.start);
+  const drawing = chain.length > 0 || !!start;
   const selection = useEditor(s => s.selection);
+  const selectedRoom = useEditor(s => s.room);
+  const anchor = useEditor(s => s.anchor);
   const st = useEditor.getState();
 
   const svgRef = useRef<SVGSVGElement>(null);
@@ -39,25 +43,30 @@ export function PlanView() {
   const [view, setView] = useState<View>({ s: 50, ox: 60, oy: 60 });
   const [cursor, setCursor] = useState<Point | null>(null);
   const [typed, setTyped] = useState('');
+  const [typedAngle, setTypedAngle] = useState('');
   const [box, setBox] = useState<{ a: Point; b: Point } | null>(null);
   const pan = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
   const drag = useRef<Drag | null>(null);
   const lengthRef = useRef<HTMLInputElement>(null);
 
   // поле длины получает фокус после каждой поставленной точки
-  useEffect(() => { if (tool === 'wall' && chain.length) lengthRef.current?.focus(); }, [tool, chain.length]);
+  useEffect(() => { if (tool === 'wall' && drawing) lengthRef.current?.focus(); }, [tool, chain.length, start]);
 
-  const onLengthKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const clearTyped = () => { setTyped(''); setTypedAngle(''); };
+  // Enter и Esc одинаково работают в полях длины и угла, Tab переходит между ними
+  const onFieldKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     const s = useEditor.getState();
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (!typed || parseLength(typed) === null || !snap) return; // пусто или неразборчиво — не ставим
+      const bad = (typed && parseLength(typed) === null) || (typedAngle && parseAngle(typedAngle) === null);
+      if ((!typed && !typedAngle) || bad || !snap) return; // пусто или неразборчиво — не ставим
       s.placePoint(snap.p, snap.node, snap.wall);
-      setTyped('');
+      clearTyped();
+      lengthRef.current?.focus();
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      if (typed) setTyped('');
-      else { s.endChain(); lengthRef.current?.blur(); }
+      if (typed || typedAngle) clearTyped();
+      else { s.endChain(); (e.target as HTMLInputElement).blur(); }
     }
   };
 
@@ -75,51 +84,57 @@ export function PlanView() {
   };
 
   // ---------- инструмент «Стена»: куда встанет следующая точка ----------
-  const last = chain.length ? project.nodes[chain[chain.length - 1]!] : undefined;
+  const last = chain.length ? project.nodes[chain[chain.length - 1]!] : start?.p;
   // считается и по курсору для отрисовки, и по месту клика: быстрый клик сразу после движения не должен попасть в старую точку
   const snapAt = (cursor: Point | null): Snap | null => {
     if (tool !== 'wall' || !cursor) return null;
     const tol = SNAP_PX / view.s;
-    const lastId = chain[chain.length - 1];
-    // от последней точки направление прилипает к углам через 15°
+    const lastId = chain[chain.length - 1] ?? start?.node;
+    const lastWall = start?.wall; // первая точка ещё не в проекте: её стену тоже пропускаем, вдоль неё не рисуют
+    // направление: набранный угол (0° — вправо, 90° — вверх) или прилипание к углам через 15°
     const d = last ? sub(cursor, last) : { x: 0, y: 0 };
-    const ang = Math.round(Math.atan2(d.y, d.x) / ANGLE_STEP) * ANGLE_STEP;
+    const typedDeg = parseAngle(typedAngle);
+    const ang = typedDeg !== null ? (-typedDeg * Math.PI) / 180 : Math.round(Math.atan2(d.y, d.x) / ANGLE_STEP) * ANGLE_STEP;
     const dir = { x: Math.cos(ang), y: Math.sin(ang) };
 
-    const typedLength = parseLength(typed);
-    if (last && typedLength !== null) {
-      // длина набрана — точка ровно там; если она пришлась на угол или стену, встаём в них
-      const p = add(last, mul(dir, typedLength));
+    // точка на луче: если она пришлась на угол или стену, встаём в них
+    const exact = (p: Point): Snap => {
       const node = ops.nodeNear(project, p, EXACT);
       if (node && node !== lastId) return { p: project.nodes[node]!, node };
-      const onWall = ops.wallNear(project, p, EXACT, lastId);
+      const onWall = ops.wallNear(project, p, EXACT, lastId, lastWall);
       if (onWall && dist(onWall.p, p) <= EXACT) return { p: onWall.p, wall: onWall.id };
       return { p };
-    }
+    };
 
-    const near = ops.nodeNear(project, cursor, tol);
+    const typedLength = parseLength(typed);
+    if (last && typedLength !== null) return exact(add(last, mul(dir, typedLength)));
+
+    // угол набран — к углам у курсора не прилипаем, точка остаётся на луче
+    const near = typedDeg === null ? ops.nodeNear(project, cursor, tol) : undefined;
     if (near && near !== lastId) return { p: project.nodes[near]!, node: near };
-    const onWall = ops.wallNear(project, cursor, tol, lastId);
+    const onWall = ops.wallNear(project, cursor, tol, lastId, lastWall);
     if (onWall) {
       const w = project.walls[onWall.id]!;
       const a = project.nodes[w.a]!, b = project.nodes[w.b]!;
       if (last) {
-        // стена под углом 15° упирается в эту стену — встаём точно в точку упора
+        // стена по направлению упирается в эту стену — встаём точно в точку упора
         const x = intersect(last, dir, a, sub(b, a));
         const t = x ? segmentParam(a, b, x) : 0;
         if (x && t > 0 && t < 1 && dist(x, cursor) <= 3 * tol && (x.x - last.x) * dir.x + (x.y - last.y) * dir.y > 0) {
           return { p: { x: round(x.x), y: round(x.y) }, wall: w.id };
         }
       }
-      // иначе — проекция курсора на стену, расстояние от её начала с точностью 1 см
-      const along = Math.round(dist(a, onWall.p) * 100) / 100;
-      const p = add(a, mul(norm(sub(b, a)), along));
-      return { p: { x: round(p.x), y: round(p.y) }, wall: w.id };
+      if (typedDeg === null) {
+        // иначе — проекция курсора на стену, расстояние от её начала с точностью 1 см
+        const along = Math.round(dist(a, onWall.p) * 100) / 100;
+        const p = add(a, mul(norm(sub(b, a)), along));
+        return { p: { x: round(p.x), y: round(p.y) }, wall: w.id };
+      }
     }
     if (!last) return { p: { x: round(Math.round(cursor.x / GRID_SNAP) * GRID_SNAP), y: round(Math.round(cursor.y / GRID_SNAP) * GRID_SNAP) } };
     // длина — до курсора с точностью 1 см
     const length = Math.max(0.01, Math.round(Math.abs(d.x * dir.x + d.y * dir.y) * 100) / 100);
-    return { p: add(last, mul(dir, length)) };
+    return typedDeg === null ? { p: add(last, mul(dir, length)) } : exact(add(last, mul(dir, length)));
   };
   const snap = snapAt(cursor);
 
@@ -130,13 +145,13 @@ export function PlanView() {
       const s = useEditor.getState();
       if (s.tool === 'wall') {
         if (e.key === 'Escape') {
-          if (typed) setTyped('');
-          else if (s.chain.length) s.endChain();
+          if (typed || typedAngle) clearTyped();
+          else if (s.chain.length || s.start) s.endChain();
           else s.setTool('select');
           return;
         }
         // цифра, набранная мимо поля длины, всё равно попадает в него
-        if (s.chain.length && /^[0-9]$/.test(e.key)) { setTyped(t => t + e.key); lengthRef.current?.focus(); e.preventDefault(); }
+        if ((s.chain.length || s.start) && /^[0-9]$/.test(e.key)) { setTyped(t => t + e.key); lengthRef.current?.focus(); e.preventDefault(); }
         return;
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && s.selection.length) { s.deleteWalls(s.selection); return; }
@@ -151,7 +166,7 @@ export function PlanView() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [typed]);
+  }, [typed, typedAngle]);
 
   // ---------- мышь ----------
   const onWheel = (e: React.WheelEvent) => {
@@ -183,6 +198,9 @@ export function PlanView() {
       if (e.shiftKey) sel = sel.includes(wallId) ? sel.filter(id => id !== wallId) : [...sel, wallId];
       else if (!sel.includes(wallId)) sel = [wallId];
       st.setSelection(sel);
+      // при новой длине стоит угол, ближний к месту клика
+      const w = project.walls[wallId]!;
+      st.setAnchor(dist(p, project.nodes[w.a]!) <= dist(p, project.nodes[w.b]!) ? w.a : w.b);
       drag.current = { kind: 'move', start: p, nodes: ops.nodesOfWalls(useEditor.getState().project, sel), moved: false };
       return;
     }
@@ -198,8 +216,9 @@ export function PlanView() {
 
   const onPointerMove = (e: React.PointerEvent) => {
     if (pan.current) {
-      const dx = e.clientX - pan.current.x, dy = e.clientY - pan.current.y;
-      setView(v => ({ ...v, ox: pan.current!.ox + dx, oy: pan.current!.oy + dy }));
+      // значения берём сразу: функцию в setView React вызовет позже, когда кнопку могут уже отпустить и pan.current станет null
+      const ox = pan.current.ox + e.clientX - pan.current.x, oy = pan.current.oy + e.clientY - pan.current.y;
+      setView(v => ({ ...v, ox, oy }));
       return;
     }
     const p = toPlan(e.clientX, e.clientY);
@@ -232,7 +251,7 @@ export function PlanView() {
     if (e.button !== 0) return;
     if (tool === 'wall') {
       const at = snapAt(toPlan(e.clientX, e.clientY));
-      if (at) { st.placePoint(at.p, at.node, at.wall); setTyped(''); }
+      if (at) { st.placePoint(at.p, at.node, at.wall); clearTyped(); }
       return;
     }
     const d = drag.current;
@@ -246,7 +265,8 @@ export function PlanView() {
       if (d.moved && preview) st.moveNode(d.id, preview.nodes[d.id]!, d.wall);
     } else {
       setBox(null);
-      if (!d.moved) { if (!d.add) st.setSelection([]); return; }
+      // просто клик: по полу — выбрать комнату, мимо — снять выбор
+      if (!d.moved) { if (!d.add) st.selectRoom(ops.roomAt(useEditor.getState().project, p) ?? null); return; }
       const found = ops.wallsInRect(useEditor.getState().project, d.start, p, p.x < d.start.x);
       st.setSelection(d.add ? [...new Set([...selection, ...found])] : found);
     }
@@ -289,12 +309,18 @@ export function PlanView() {
 
   const preview = tool === 'wall' && last && snap ? { a: last as Point, b: snap.p } : null;
   const handles = tool === 'select' ? ops.nodesOfWalls(project, selection) : [];
+  const anchorOf = (w?: Wall) => (w && anchor === w.b ? w.b : w?.a);
   const empty = !Object.keys(project.walls).length;
 
   return (
     <svg ref={svgRef} className={`plan tool-${tool}`} onWheel={onWheel} onPointerDown={onPointerDown}
       onPointerMove={onPointerMove} onPointerUp={onPointerUp}
-      onPointerLeave={() => { if (!chain.length) setCursor(null); }}
+      onPointerLeave={() => { if (!drawing) setCursor(null); }}
+      onDoubleClick={e => {
+        // двойной клик по полу — сразу переименовать комнату
+        if (tool !== 'select' || !ops.roomAt(project, toPlan(e.clientX, e.clientY))) return;
+        requestAnimationFrame(() => (document.getElementById('room-name') as HTMLInputElement | null)?.select());
+      }}
       onContextMenu={e => e.preventDefault()}>
       <rect width="100%" height="100%" className="plan-paper" />
       <g transform={`translate(${view.ox} ${view.oy}) scale(${view.s})`}>
@@ -305,7 +331,7 @@ export function PlanView() {
           const c = centroid(poly);
           return (
             <g key={r.id}>
-              <polygon className="room-floor" points={pts(poly)} />
+              <polygon className={`room-floor${r.id === selectedRoom ? ' selected' : ''}`} points={pts(poly)} />
               <text className="room-name" x={c.x} y={c.y - 9 * px} fontSize={13 * px} textAnchor="middle">{r.name}</text>
               <text className="room-area" x={c.x} y={c.y + 9 * px} fontSize={12 * px} textAnchor="middle">
                 {Math.abs(signedArea(poly)).toFixed(2).replace('.', ',')} м²
@@ -321,12 +347,15 @@ export function PlanView() {
 
         {handles.map(id => {
           const n = project.nodes[id]!;
-          return <rect key={id} data-node={id} className="handle" x={n.x - 5 * px} y={n.y - 5 * px} width={10 * px} height={10 * px} rx={2 * px} />;
+          // у одной выбранной стены закрашен угол, который стоит при новой длине
+          const fixed = selection.length === 1 && id === anchorOf(project.walls[selection[0]!]);
+          return <rect key={id} data-node={id} className={`handle${fixed ? ' anchor' : ''}`} x={n.x - 5 * px} y={n.y - 5 * px} width={10 * px} height={10 * px} rx={2 * px} />;
         })}
 
         {tool === 'wall' && Object.values(project.nodes).map(n => (
           <circle key={n.id} className={`node${n.id === chain[0] && chain.length >= 3 ? ' close' : ''}`} cx={n.x} cy={n.y} r={4 * px} />
         ))}
+        {tool === 'wall' && start && <circle className="node" cx={start.p.x} cy={start.p.y} r={4 * px} />}
         {preview && (
           <g className="preview">
             <line x1={preview.a.x} y1={preview.a.y} x2={preview.b.x} y2={preview.b.y} strokeWidth={project.defaultThickness} />
@@ -352,28 +381,40 @@ export function PlanView() {
         )}
       </g>
 
-      {tool === 'wall' && chain.length > 0 && preview && (() => {
-        // поле длины — у конца рисуемой стены, не вылезая за край плана
-        const W = 196, H = 40;
+      {tool === 'wall' && drawing && preview && (() => {
+        // поля длины и угла — у конца рисуемой стены, не вылезая за край плана
+        const W = 300, H = 40;
         const ex = preview.b.x * view.s + view.ox + 16, ey = preview.b.y * view.s + view.oy + 12;
         const x = Math.min(Math.max(8, ex), size.w - W - 8), y = Math.min(Math.max(8, ey), size.h - H - 60);
-        const bad = !!typed && parseLength(typed) === null;
+        const badLength = !!typed && parseLength(typed) === null;
+        const badAngle = !!typedAngle && parseAngle(typedAngle) === null;
+        // текущее направление для подсказки: 0° — вправо, 90° — вверх
+        const deg = ((Math.atan2(preview.a.y - preview.b.y, preview.b.x - preview.a.x) * 180) / Math.PI + 360) % 360;
         return (
           <foreignObject x={x} y={y} width={W} height={H}>
-            <label className={`length-box${bad ? ' bad' : ''}`}>
-              <span>Длина</span>
-              <input ref={lengthRef} value={typed} placeholder={formatMeters(dist(preview.a, preview.b))}
-                onChange={e => setTyped(e.target.value)} onKeyDown={onLengthKey} aria-label="Длина стены" />
-            </label>
+            <div className={`length-box${badLength || badAngle ? ' bad' : ''}`}>
+              <label>
+                <span>Длина</span>
+                <input ref={lengthRef} value={typed} placeholder={formatMeters(dist(preview.a, preview.b))} aria-invalid={badLength}
+                  onChange={e => setTyped(e.target.value)} onKeyDown={onFieldKey} aria-label="Длина стены" />
+              </label>
+              <label className="angle">
+                <span>Угол</span>
+                <input value={typedAngle} placeholder={formatAngle(deg)} aria-invalid={badAngle}
+                  onChange={e => setTypedAngle(e.target.value)} onKeyDown={onFieldKey} aria-label="Угол стены" />
+              </label>
+            </div>
           </foreignObject>
         );
       })()}
-      {tool === 'wall' && chain.length > 0 && (
+      {tool === 'wall' && drawing && (
         <foreignObject x={12} y={size.h - 64} width={size.w - 24} height={56}>
           <div className="chip">
             {typed && parseLength(typed) === null
               ? <><b className="bad">{typed}</b> не понимаю длину — пример: 3,40 или 340 или 3400 мм</>
-              : <>Направление — мышью, длина — в поле: <b>3,40</b> · <b>340</b> · <b>3400 мм</b>, затем Enter. Или просто кликните. Esc — закончить</>}
+              : typedAngle && parseAngle(typedAngle) === null
+                ? <><b className="bad">{typedAngle}</b> не понимаю угол — пример: 30 или 22,5 или -45</>
+                : <>Длина — в поле: <b>3,40</b> · <b>340</b> · <b>3400 мм</b>, Tab — угол: <b>0°</b> вправо, <b>90°</b> вверх. Enter — поставить. Или просто кликните. Esc — закончить</>}
           </div>
         </foreignObject>
       )}
