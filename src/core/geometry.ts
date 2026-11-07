@@ -53,6 +53,19 @@ export function wallOffsets(wall: Wall): [number, number] {
   return [-t / 2, t / 2];
 }
 
+/**
+ * Стена закрывает вид: глаз и точка, куда смотрят, по разные стороны от прямой стены (по её середине),
+ * и глаз не стоит вплотную к стене. Прямая, а не отрезок: так прозрачнеет весь фасад, а не кусок напротив цели.
+ */
+export function wallBlocksView(project: Project, wall: Wall, eye: Point, target: Point): boolean {
+  const a = project.nodes[wall.a]!, b = project.nodes[wall.b]!;
+  const n = perp(norm(sub(b, a)));
+  const [r, l] = wallOffsets(wall);
+  const mid = add(a, mul(n, (r + l) / 2));
+  const se = dot(sub(eye, mid), n), st = dot(sub(target, mid), n);
+  return se * st < 0 && Math.abs(se) > wall.thickness / 2 + 0.05;
+}
+
 interface WallEnd {
   wall: Wall;
   /** Направление стены от узла наружу. */

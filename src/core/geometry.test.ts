@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { perimeter, roomInnerPolygon, roomPolygon, signedArea, wallLength, wallOutline } from './geometry';
+import { perimeter, roomInnerPolygon, roomPolygon, signedArea, wallBlocksView, wallLength, wallOutline } from './geometry';
 import {
   addNode, addRoom, addWall, deleteWall, deleteWalls, dropLooseNodes, moveNodes, nodesOfWalls, roomAt, roomByPath, setWallLength, splitWall, wallNear, wallsInRect, wallsOfRoom,
 } from './ops';
@@ -224,5 +224,23 @@ describe('одинокие точки', () => {
     addNode(project, { x: 10, y: 10 });
     dropLooseNodes(project);
     expect(Object.keys(project.nodes)).toHaveLength(4);
+  });
+});
+
+describe('прозрачные стены в 3D', () => {
+  it('прозрачна только стена между глазом и целью', () => {
+    const { project, walls } = room(); // стены: верх, право, низ, лево
+    const center = { x: 3.27, y: 1.7 };
+    const blocks = (eye: { x: number; y: number }) => walls.map(id => wallBlocksView(project, project.walls[id]!, eye, center));
+    expect(blocks({ x: 3, y: -6 })).toEqual([true, false, false, false]); // смотрим сверху плана
+    expect(blocks({ x: 10, y: 6 })).toEqual([false, true, true, false]); // из угла — две стены
+    expect(blocks({ x: 3, y: 1 })).toEqual([false, false, false, false]); // изнутри комнаты
+  });
+
+  it('глаз вплотную к стене снаружи — стена не прячется', () => {
+    const { project, walls } = room();
+    // верхняя стена от −0,20 до 0; глаз на 3 см за её наружной гранью
+    expect(wallBlocksView(project, project.walls[walls[0]!]!, { x: 3, y: -0.23 }, { x: 3, y: 1.7 })).toBe(false);
+    expect(wallBlocksView(project, project.walls[walls[0]!]!, { x: 3, y: -0.4 }, { x: 3, y: 1.7 })).toBe(true);
   });
 });
