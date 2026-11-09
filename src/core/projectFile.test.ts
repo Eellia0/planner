@@ -51,3 +51,15 @@ describe('файл проекта', () => {
     expect(fileName(emptyProject('  '))).toBe('Проект.planner.json');
   });
 });
+
+describe('файл проекта: цвет', () => {
+  it('цвет граней сохраняется, чужая строка вместо цвета отбрасывается', () => {
+    const p = sample();
+    const [w1, w2] = Object.values(p.walls);
+    w1!.paintLeft = '#A2AC96';
+    (w2 as unknown as { paintRight: string }).paintRight = 'red; drop';
+    const back = projectFromFile(projectToFile(p));
+    expect(back.walls[w1!.id]!.paintLeft).toBe('#A2AC96');
+    expect(back.walls[w2!.id]!.paintRight).toBeUndefined();
+  });
+});

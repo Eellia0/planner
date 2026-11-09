@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { interiorSide, perimeter, roomInnerPolygon, roomsOfWall, signedArea, wallLength } from '../core/geometry';
 import * as ops from '../core/ops';
-import type { WallSide } from '../core/types';
+import type { Face, Project, WallSide } from '../core/types';
 import { formatCm, formatMeters, parseLength } from '../core/units';
 import { useEditor } from '../store/editor';
+import { ColorField } from './ColorField';
 
 /** Поле длины: принимает «340», «3,40», «3400 мм»; применяет по Enter или при уходе из поля. */
 function LengthField({ label, value, format, onCommit }: {
@@ -47,6 +48,13 @@ function TextField({ id, label, value, onCommit }: { id?: string; label: string;
   );
 }
 
+/** Общий цвет граней: undefined — все без цвета, null — разные. */
+function commonPaint(project: Project, faces: Face[]): string | undefined | null {
+  if (!faces.length) return undefined;
+  const all = faces.map(f => ops.paintOf(project.walls[f.wall]!, f.side));
+  return all.every(c => c === all[0]) ? all[0] : null;
+}
+
 const meters = (m: number) => `${formatMeters(m)} м`;
 const cm = (m: number) => `${formatCm(m)} см`;
 
@@ -82,6 +90,15 @@ export function Inspector() {
 
   const rooms = Object.values(project.rooms);
   const total = rooms.reduce((s, r) => s + Math.abs(signedArea(roomInnerPolygon(project, r))), 0);
+  // цвет граней: у стены одной комнаты — изнутри и снаружи, у перегородки — со стороны каждой комнаты
+  const faceFields: [string, Face][] = !wall ? [] : room
+    ? [['Цвет изнутри', { wall: wall.id, side: inside }], ['Цвет снаружи', { wall: wall.id, side: -inside as 1 | -1 }]]
+    : wallRooms.length === 2
+      ? wallRooms.map(r => [`Цвет со стороны «${r.name}»`, { wall: wall.id, side: interiorSide(project, r, wall) }])
+      : [['Цвет с одной стороны', { wall: wall.id, side: 1 }], ['Цвет с другой стороны', { wall: wall.id, side: -1 }]];
+  const multiFaces = walls.length > 1 ? ops.insideFaces(project, walls) : [];
+  const roomFaces = selectedRoom ? ops.roomFaces(project, selectedRoom) : [];
+
   const sameThickness = walls.length && walls.every(w => w.thickness === walls[0]!.thickness) ? walls[0]!.thickness : null;
 
   return (
@@ -116,6 +133,9 @@ export function Inspector() {
               ))}
             </div>
           </div>
+          {faceFields.map(([label, f]) => (
+            <ColorField key={label} label={label} value={ops.paintOf(wall, f.side)} onPick={c => st.paintFaces([f], c)} />
+          ))}
           <p className="hint">Длина — по линии, на которой стену рисовали{room ? ': у комнаты это внутренняя сторона' : ''}. Закрашенный угол стоит на месте, другой едет, а соседняя стена у него переезжает параллельно.</p>
           <button type="button" className="danger" onClick={() => st.deleteWalls([wall.id])}>Удалить стену</button>
         </section>
@@ -123,6 +143,7 @@ export function Inspector() {
         <section className="card">
           <h2>Выбрано стен: {walls.length}</h2>
           <LengthField label="Толщина всех" value={sameThickness} format={cm} onCommit={m => st.setWallThickness(selection, m)} />
+          {multiFaces.length > 0 && <ColorField label="Цвет изнутри" value={commonPaint(project, multiFaces)} onPick={c => st.paintFaces(multiFaces, c)} />}
           <p className="hint">Тяните любую из выбранных стен — переедут все. Стрелки сдвигают на 1 см, с Shift — на 10 см.</p>
           <button type="button" className="danger" onClick={() => st.deleteWalls(selection)}>Удалить выбранные</button>
         </section>
@@ -134,13 +155,15 @@ export function Inspector() {
             <span>Площадь <b>{formatMeters(Math.abs(signedArea(roomFloor)))} м²</b></span>
             <span>Периметр <b>{formatMeters(perimeter(roomFloor))} м</b></span>
           </p>
-          <p className="hint">Площадь и периметр — по внутренним граням стен.</p>
+          <ColorField label="Цвет стен" value={commonPaint(project, roomFaces)} onPick={c => st.paintFaces(roomFaces, c)} />
+          <p className="hint">Площадь и периметр — по внутренним граням стен. Цвет стен — для всех стен комнаты изнутри; отдельную стену можно перекрасить, выбрав её.</p>
           <button type="button" className="ghost" onClick={() => st.setSelection(ops.wallsOfRoom(project, selectedRoom))}>Выбрать стены комнаты</button>
         </section>
       ) : null}
 
       <section className="card">
         <h2>Параметры</h2>
+        <TextField id="project-name" label="Название проекта" value={project.name} onCommit={st.renameProject} />
         <LengthField label="Высота потолка" value={project.ceilingHeight} format={meters} onCommit={st.setCeilingHeight} />
         <LengthField label="Толщина новых стен" value={project.defaultThickness} format={cm} onCommit={st.setDefaultThickness} />
       </section>

@@ -18,6 +18,7 @@ export function fileName(project: Project): string {
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const isColor = (v: unknown): v is string => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
 /**
@@ -45,7 +46,10 @@ export function projectFromFile(text: string): Project {
     if (!isObj(w) || typeof w.a !== 'string' || typeof w.b !== 'string' || !p.nodes[w.a] || !p.nodes[w.b] || w.a === w.b) throw broken();
     const thickness = isNum(w.thickness) && w.thickness > 0 ? w.thickness : p.defaultThickness;
     const side = w.side === 1 || w.side === -1 ? w.side : 0;
-    p.walls[id] = { id, a: w.a, b: w.b, thickness, side } satisfies Wall;
+    const wall: Wall = { id, a: w.a, b: w.b, thickness, side };
+    if (isColor(w.paintLeft)) wall.paintLeft = w.paintLeft;
+    if (isColor(w.paintRight)) wall.paintRight = w.paintRight;
+    p.walls[id] = wall;
   }
   for (const [id, r] of Object.entries(src.rooms)) {
     // комнату со ссылкой на несуществующий угол пропускаем: стены останутся, комнату можно замкнуть заново

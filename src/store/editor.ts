@@ -3,7 +3,7 @@ import { immer } from 'zustand/middleware/immer';
 import { temporal } from 'zundo';
 import { dist } from '../core/geometry';
 import * as ops from '../core/ops';
-import { emptyProject, type Id, type Point, type Project, type WallSide } from '../core/types';
+import { emptyProject, type Face, type Id, type Point, type Project, type WallSide } from '../core/types';
 
 export type Tool = 'select' | 'wall';
 /** Куда встанет первая точка: в угол, на стену или в свободное место. */
@@ -44,30 +44,18 @@ interface EditorState {
   setWallLength: (id: Id, length: number) => void;
   setWallThickness: (ids: Id[], thickness: number) => void;
   setWallSide: (id: Id, side: WallSide) => void;
+  /** Покрасить грани стен одним шагом отмены; null — вернуть цвет по умолчанию. */
+  paintFaces: (faces: Face[], color: string | null) => void;
   deleteWalls: (ids: Id[]) => void;
   setDefaultThickness: (t: number) => void;
   setCeilingHeight: (h: number) => void;
-  newProject: () => void;
-}
-
-const STORAGE_KEY = 'planner.project';
-
-function loadProject(): Project {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const project = JSON.parse(raw) as Project;
-      ops.dropLooseNodes(project); // точки без стен оставались от брошенного начала цепочки
-      return project;
-    }
-  } catch { /* хранилище недоступно или испорчено — начинаем с пустого */ }
-  return emptyProject();
+  renameProject: (name: string) => void;
 }
 
 export const useEditor = create<EditorState>()(
   temporal(
     immer(set => ({
-      project: loadProject(),
+      project: emptyProject(), // настоящий проект открывает initProjects (store/projects.ts)
       preview: null,
       tool: 'select',
       selection: [],
@@ -135,6 +123,7 @@ export const useEditor = create<EditorState>()(
         const w = s.project.walls[id];
         if (w) w.side = side;
       }),
+      paintFaces: (faces, color) => set(s => { ops.paintFaces(s.project, faces, color); }),
       deleteWalls: ids => set(s => {
         ops.deleteWalls(s.project, ids);
         s.selection = s.selection.filter(id => s.project.walls[id]);
@@ -142,7 +131,7 @@ export const useEditor = create<EditorState>()(
       }),
       setDefaultThickness: t => set(s => { if (t > 0) s.project.defaultThickness = t; }),
       setCeilingHeight: h => set(s => { if (h > 0) s.project.ceilingHeight = h; }),
-      newProject: () => set(s => { s.project = emptyProject(); s.chain = []; s.start = null; s.selection = []; s.room = null; }),
+      renameProject: name => set(s => { if (name.trim()) s.project.name = name.trim(); }),
     })),
     {
       // в историю отмены попадает только сам проект: выбор, инструмент и черновик не отменяются
@@ -165,11 +154,11 @@ function afterHistory() {
 export const undo = () => { useEditor.temporal.getState().undo(); afterHistory(); };
 export const redo = () => { useEditor.temporal.getState().redo(); afterHistory(); };
 
+/** Открыть другой проект: выбор и рисование сбрасываются, история отмены начинается заново. */
+export function openProject(project: Project) {
+  useEditor.setState({ project, preview: null, chain: [], start: null, selection: [], room: null, anchor: null });
+  useEditor.temporal.getState().clear();
+}
+
 /** Что рисовать: черновик, если сейчас что-то тянут, иначе проект. */
 export const useShownProject = () => useEditor(s => s.preview ?? s.project);
-
-// автосохранение в браузере
-useEditor.subscribe((s, prev) => {
-  if (s.project === prev.project) return;
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s.project)); } catch { /* нет места или запрещено */ }
-});

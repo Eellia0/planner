@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { add, centroid, dist, intersect, mul, norm, roomInnerPolygon, segmentParam, signedArea, sub, wallLength, wallOutline } from '../core/geometry';
+import { add, centroid, dist, intersect, mul, norm, perp, roomInnerPolygon, segmentParam, signedArea, sub, wallLength, wallOffsets, wallOutline } from '../core/geometry';
 import * as ops from '../core/ops';
 import type { Id, Point, Project, Wall } from '../core/types';
 import { formatAngle, formatMeters, parseAngle, parseLength, round } from '../core/units';
@@ -343,6 +343,22 @@ export function PlanView() {
         {walls.map(w => (
           <polygon key={w.id} data-wall={w.id} points={pts(wallOutline(project, w))} className={`wall${selected.has(w.id) ? ' selected' : ''}`} />
         ))}
+        {/* окрашенная грань — полоска её цвета вдоль грани со стороны пола: на тёмной стене тёмный цвет не виден */}
+        {walls.flatMap(w => {
+          const a = project.nodes[w.a]!, b = project.nodes[w.b]!;
+          const n = perp(norm(sub(b, a)));
+          const [r, l] = wallOffsets(w);
+          const out = 3 * px;
+          return ([[w.paintLeft, l + out, 'l'], [w.paintRight, r - out, 'r']] as const).filter(([c]) => c).map(([c, off, k]) => {
+            const p = add(a, mul(n, off)), q = add(b, mul(n, off));
+            return (
+              <g key={w.id + k} className="wall-paint">
+                <line x1={p.x} y1={p.y} x2={q.x} y2={q.y} className="wall-paint-edge" />
+                <line x1={p.x} y1={p.y} x2={q.x} y2={q.y} stroke={c} />
+              </g>
+            );
+          });
+        })}
         {walls.filter(w => w.id !== snap?.wall).map(w => wallLabel(project.nodes[w.a]!, project.nodes[w.b]!, w.side, w.thickness, formatMeters(wallLength(project, w)), `l${w.id}`))}
 
         {handles.map(id => {
@@ -424,7 +440,11 @@ export function PlanView() {
         </foreignObject>
       )}
       {empty && tool === 'select' && (
-        <text x={size.w / 2} y={size.h / 2} className="plan-empty" textAnchor="middle">Нажмите «Стена» слева или W и кликните на плане, чтобы начать</text>
+        // две строки: в узкой панели (План + 3D) одна не помещается
+        <text x={size.w / 2} y={size.h / 2} className="plan-empty" textAnchor="middle">
+          <tspan x={size.w / 2}>Нажмите «Стена» слева или W</tspan>
+          <tspan x={size.w / 2} dy="1.5em">и кликните на плане, чтобы начать</tspan>
+        </text>
       )}
     </svg>
   );

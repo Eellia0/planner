@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { perimeter, roomInnerPolygon, roomPolygon, signedArea, wallBlocksView, wallLength, wallOutline } from './geometry';
 import {
-  addNode, addRoom, addWall, deleteWall, deleteWalls, dropLooseNodes, moveNodes, nodesOfWalls, roomAt, roomByPath, setWallLength, splitWall, wallNear, wallsInRect, wallsOfRoom,
+  addNode, addRoom, addWall, deleteWall, deleteWalls, insideFaces, paintFaces, paintOf, roomFaces, usedPaints, dropLooseNodes, moveNodes, nodesOfWalls, roomAt, roomByPath, setWallLength, splitWall, wallNear, wallsInRect, wallsOfRoom,
 } from './ops';
 import { emptyProject, type Project } from './types';
 
@@ -242,5 +242,57 @@ describe('прозрачные стены в 3D', () => {
     // верхняя стена от −0,20 до 0; глаз на 3 см за её наружной гранью
     expect(wallBlocksView(project, project.walls[walls[0]!]!, { x: 3, y: -0.23 }, { x: 3, y: 1.7 })).toBe(false);
     expect(wallBlocksView(project, project.walls[walls[0]!]!, { x: 3, y: -0.4 }, { x: 3, y: 1.7 })).toBe(true);
+  });
+});
+
+describe('цвет граней', () => {
+  it('цвет стен комнаты красит только грани внутрь', () => {
+    const { project, walls } = room();
+    const r = Object.values(project.rooms)[0]!;
+    paintFaces(project, roomFaces(project, r), '#A2AC96');
+    for (const id of walls) {
+      const w = project.walls[id]!;
+      // толщина у комнаты наружу, значит внутрь — противоположная сторона
+      expect(paintOf(w, (-w.side) as 1 | -1)).toBe('#A2AC96');
+      expect(paintOf(w, w.side as 1 | -1)).toBeUndefined();
+    }
+    expect(usedPaints(project)).toEqual(['#A2AC96']);
+    paintFaces(project, roomFaces(project, r), null);
+    expect(usedPaints(project)).toEqual([]);
+  });
+
+  it('у перегородки грани внутрь — обе, и разрез стены сохраняет цвет', () => {
+    const { project, walls } = room();
+    const top = project.walls[walls[0]!]!;
+    const inner = (-top.side) as 1 | -1;
+    paintFaces(project, [{ wall: top.id, side: inner }], '#34493F');
+    // перегородка посередине
+    const n1 = splitWall(project, top.id, { x: 3, y: 0 });
+    const n2 = splitWall(project, walls[2]!, { x: 3, y: 3.4 });
+    const part = addWall(project, n1, n2);
+    roomByPath(project, [n1, n2]);
+    const halves = Object.values(project.walls).filter(w => w.id !== part && paintOf(w, inner) === '#34493F');
+    expect(halves).toHaveLength(2); // обе половины верхней стены остались окрашены
+    expect(insideFaces(project, [project.walls[part]!]).map(f => f.side).sort()).toEqual([-1, 1]);
+  });
+
+  it('удаление перегородки склеивает стену и не теряет цвет, даже если половина нарисована навстречу', () => {
+    const { project, walls } = room();
+    const top = project.walls[walls[0]!]!;
+    const inner = (-top.side) as 1 | -1;
+    paintFaces(project, [{ wall: top.id, side: inner }], '#5E7972');
+    const n1 = splitWall(project, top.id, { x: 3, y: 0 });
+    const n2 = splitWall(project, walls[2]!, { x: 3, y: 3.4 });
+    const part = addWall(project, n1, n2);
+    roomByPath(project, [n1, n2]);
+    // развернём первую половину: a↔b, сторона и грани меняются местами
+    const w = project.walls[top.id]!;
+    [w.a, w.b] = [w.b, w.a];
+    w.side = (-w.side) as 1 | -1;
+    [w.paintLeft, w.paintRight] = [w.paintRight, w.paintLeft];
+    deleteWalls(project, [part]);
+    const merged = Object.values(project.walls).find(x => wallLength(project, x) > 6.5 && (x.paintLeft || x.paintRight))!;
+    const r = Object.values(project.rooms)[0]!;
+    expect(roomFaces(project, r).filter(f => f.wall === merged.id).map(f => paintOf(merged, f.side))).toEqual(['#5E7972']);
   });
 });

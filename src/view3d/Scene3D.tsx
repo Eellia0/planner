@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { Bounds, Grid, OrbitControls, useBounds } from '@react-three/drei';
+import { Bounds, Edges, Grid, OrbitControls, useBounds } from '@react-three/drei';
 import * as THREE from 'three';
-import { roomInnerPolygon, wallBlocksView, wallOutline } from '../core/geometry';
-import type { Id, Point, Project } from '../core/types';
+import { dot, norm, perp, roomInnerPolygon, sub, wallBlocksView, wallOutline } from '../core/geometry';
+import { WALL_COLOR, type Id, type Point, type Project, type Wall } from '../core/types';
 import { useEditor, useShownProject } from '../store/editor';
 import { useThemeColor } from '../ui/theme';
 
@@ -16,10 +16,32 @@ function shapeOf(poly: Point[]): THREE.Shape {
   return s;
 }
 
+/**
+ * Цвета граней стены через цвета вершин: треугольник, повёрнутый в сторону нормали стены, — левая грань,
+ * в обратную — правая, остальное (торцы, верх) — цвет по умолчанию. Одна сетка на стену, без кусков.
+ */
+function paintGeometry(g: THREE.BufferGeometry, project: Project, w: Wall) {
+  const n = perp(norm(sub(project.nodes[w.b]!, project.nodes[w.a]!)));
+  const base = new THREE.Color(WALL_COLOR);
+  const left = new THREE.Color(w.paintLeft ?? WALL_COLOR), right = new THREE.Color(w.paintRight ?? WALL_COLOR);
+  const pos = g.getAttribute('position');
+  const colors = new Float32Array(pos.count * 3);
+  const tri = new THREE.Triangle(), normal = new THREE.Vector3();
+  for (let i = 0; i + 2 < pos.count; i += 3) {
+    tri.setFromAttributeAndIndices(pos, i, i + 1, i + 2).getNormal(normal);
+    const d = dot({ x: normal.x, y: normal.z }, n); // в 3D план (x, y) — это (x, z)
+    const c = d > 0.99 ? left : d < -0.99 ? right : base;
+    for (let k = 0; k < 3; k++) c.toArray(colors, (i + k) * 3);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}
+
 function useWallGeometries(project: Project) {
   return useMemo(() => Object.values(project.walls).map(w => {
-    const g = new THREE.ExtrudeGeometry(shapeOf(wallOutline(project, w)), { depth: project.ceilingHeight, bevelEnabled: false });
+    let g: THREE.BufferGeometry = new THREE.ExtrudeGeometry(shapeOf(wallOutline(project, w)), { depth: project.ceilingHeight, bevelEnabled: false });
+    if (g.index) g = g.toNonIndexed(); // у каждого треугольника свои вершины — свой цвет
     g.rotateX(-Math.PI / 2);
+    paintGeometry(g, project, w);
     return { id: w.id, g };
   }), [project]);
 }
@@ -42,7 +64,7 @@ function FitOnChange({ count }: { count: number }) {
 const GHOST_OPACITY = 0.1;
 
 /** Стены. Каждый кадр прячет те, что стоят между камерой и точкой, куда она смотрит (как в kvartira). */
-function Walls({ project, selected }: { project: Project; selected: Set<Id> }) {
+function Walls({ project, selected, ghostOn }: { project: Project; selected: Set<Id>; ghostOn: boolean }) {
   const walls = useWallGeometries(project);
   const meshes = useRef(new Map<Id, THREE.Mesh>());
 
@@ -52,7 +74,7 @@ function Walls({ project, selected }: { project: Project; selected: Set<Id> }) {
     const eye = { x: camera.position.x, y: camera.position.z }, aim = { x: target.x, y: target.z };
     for (const [id, mesh] of meshes.current) {
       const w = project.walls[id], m = mesh.material as THREE.MeshStandardMaterial;
-      const ghost = !!w && wallBlocksView(project, w, eye, aim);
+      const ghost = ghostOn && !!w && wallBlocksView(project, w, eye, aim);
       if (ghost === m.transparent) continue;
       mesh.castShadow = !ghost; // тень спрятанной стены затемняла бы комнату
       m.transparent = ghost;
@@ -67,14 +89,17 @@ function Walls({ project, selected }: { project: Project; selected: Set<Id> }) {
       {walls.map(w => (
         <mesh key={w.id} geometry={w.g} castShadow receiveShadow
           ref={m => { if (m) meshes.current.set(w.id, m); else meshes.current.delete(w.id); }}>
-          <meshStandardMaterial color={selected.has(w.id) ? '#7FB5AB' : '#F2F1EE'} roughness={0.9} />
+          <meshStandardMaterial vertexColors roughness={0.9} />
+          {/* выбранная стена — контур по рёбрам: подкраска смешивалась бы с цветом стены */}
+          {selected.has(w.id) && <Edges color="#2D6A62" lineWidth={2.5} threshold={20} />}
         </mesh>
       ))}
     </>
   );
 }
 
-export function Scene3D() {
+/** ghost — прятать стены, которые закрывают вид (переключатель в углу окна 3D). */
+export function Scene3D({ ghost }: { ghost: boolean }) {
   const project = useShownProject();
   const selection = useEditor(s => s.selection);
   const selected = new Set(selection);
@@ -100,7 +125,7 @@ export function Scene3D() {
               <meshStandardMaterial color="#E9DFD0" roughness={0.8} />
             </mesh>
           ))}
-          <Walls project={project} selected={selected} />
+          <Walls project={project} selected={selected} ghostOn={ghost} />
         </group>
       </Bounds>
       <OrbitControls makeDefault maxPolarAngle={Math.PI / 2 - 0.03} />

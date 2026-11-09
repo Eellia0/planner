@@ -25,6 +25,19 @@ export interface Wall {
   b: Id;
   thickness: number;
   side: WallSide;
+  /** Цвет грани слева от a→b ('#rrggbb'). Нет — стена цвета WALL_COLOR. */
+  paintLeft?: string;
+  /** Цвет грани справа от a→b. */
+  paintRight?: string;
+}
+
+/** Цвет неокрашенной стены. */
+export const WALL_COLOR = '#F2F1EE';
+
+/** Грань стены: сторона 1 — слева от a→b, -1 — справа (как у WallSide). */
+export interface Face {
+  wall: Id;
+  side: 1 | -1;
 }
 
 /** Замкнутый контур стен. Узлы перечислены по порядку обхода. */

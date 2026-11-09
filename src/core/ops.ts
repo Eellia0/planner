@@ -3,7 +3,7 @@ import {
   add, dist, dot, interiorSide, mul, norm, pointInPolygon, roomInnerPolygon, roomPolygon, roomsOfWall, segmentParam, signedArea, STRAIGHT, sub,
   wallBetween,
 } from './geometry';
-import { newId, type Id, type Point, type Project, type Room, type Wall, type WallSide } from './types';
+import { newId, type Face, type Id, type Point, type Project, type Room, type Wall, type WallSide } from './types';
 import { round } from './units';
 
 /** Узел ближе tol к точке или undefined. */
@@ -276,10 +276,48 @@ function joinStraight(project: Project, nodeId: Id): void {
   const s1 = w1.b === nodeId ? w1.side : -w1.side;
   const s2 = w2.a === nodeId ? w2.side : -w2.side;
   if (s1 !== s2) return;
+  if (w1.a === nodeId && (w1.paintLeft || w1.paintRight)) [w1.paintLeft, w1.paintRight] = [w1.paintRight, w1.paintLeft]; // стена развернулась — грани меняются местами
   w1.a = x;
   w1.b = y;
   w1.side = s1 as WallSide;
   delete project.walls[w2.id];
   delete project.nodes[nodeId];
   for (const room of Object.values(project.rooms)) room.nodes = room.nodes.filter(id => id !== nodeId);
+}
+
+// ---------- цвет граней ----------
+/** Цвет грани или undefined, если не окрашена. */
+export function paintOf(wall: Wall, side: 1 | -1): string | undefined {
+  return side === 1 ? wall.paintLeft : wall.paintRight;
+}
+
+/** Покрасить грани; null — вернуть цвет по умолчанию. */
+export function paintFaces(project: Project, faces: Face[], color: string | null): void {
+  for (const f of faces) {
+    const w = project.walls[f.wall];
+    if (!w) continue;
+    const key = f.side === 1 ? 'paintLeft' : 'paintRight';
+    if (color) w[key] = color;
+    else delete w[key];
+  }
+}
+
+/** Грани стен комнаты, обращённые внутрь неё. */
+export function roomFaces(project: Project, room: Room): Face[] {
+  return wallsOfRoom(project, room).map(id => ({ wall: id, side: interiorSide(project, room, project.walls[id]!) }));
+}
+
+/** Грани стен, обращённые в какую-нибудь комнату (у перегородки — обе). */
+export function insideFaces(project: Project, walls: Wall[]): Face[] {
+  return walls.flatMap(w => roomsOfWall(project, w).map(r => ({ wall: w.id, side: interiorSide(project, r, w) })));
+}
+
+/** Все цвета граней в проекте, без повторов. */
+export function usedPaints(project: Project): string[] {
+  const out = new Set<string>();
+  for (const w of Object.values(project.walls)) {
+    if (w.paintLeft) out.add(w.paintLeft.toUpperCase());
+    if (w.paintRight) out.add(w.paintRight.toUpperCase());
+  }
+  return [...out];
 }
