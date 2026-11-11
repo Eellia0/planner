@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { add, centroid, dist, intersect, mul, norm, perp, roomInnerPolygon, segmentParam, signedArea, sub, wallLength, wallOffsets, wallOutline } from '../core/geometry';
+import { add, centroid, dist, dot, intersect, mul, norm, perp, roomInnerPolygon, segmentParam, signedArea, sub, wallLength, wallOffsets, wallOutline } from '../core/geometry';
+import { badOpenings, clampOffset, MIN_OPENING, newOpening } from '../core/openings';
 import * as ops from '../core/ops';
-import type { Id, Point, Project, Wall } from '../core/types';
+import type { Id, Opening, OpeningKind, Point, Project, Wall } from '../core/types';
 import { formatAngle, formatMeters, parseAngle, parseLength, round } from '../core/units';
-import { useEditor, useShownProject } from '../store/editor';
+import { useEditor, useShownProject, type Tool } from '../store/editor';
+import { OpeningShape } from './OpeningShape';
 
 // План сверху. Всё внутри рисуется в метрах; вид (масштаб и сдвиг) переводит метры в пиксели.
 interface View { s: number; ox: number; oy: number }
@@ -12,7 +14,13 @@ interface View { s: number; ox: number; oy: number }
 type Drag =
   | { kind: 'move'; start: Point; nodes: Id[]; moved: boolean }
   | { kind: 'node'; start: Point; id: Id; moved: boolean; wall?: Id }
-  | { kind: 'box'; start: Point; end: Point; add: boolean; moved: boolean };
+  | { kind: 'box'; start: Point; end: Point; add: boolean; moved: boolean }
+  | { kind: 'opening'; start: Point; id: Id; moved: boolean }
+  /** Тянут край проёма: 0 — со стороны узла a, 1 — со стороны b; другой край стоит. */
+  | { kind: 'op-end'; start: Point; id: Id; end: 0 | 1; moved: boolean };
+
+/** Какой проём ставит инструмент. */
+const TOOL_KIND: Partial<Record<Tool, OpeningKind>> = { window: 'window', door: 'door' };
 
 const SNAP_PX = 12;              // радиус прилипания к узлу, пикселей
 const GRID_SNAP = 0.05;          // шаг сетки для свободной точки, м
@@ -27,6 +35,24 @@ const pts = (ps: Point[]) => ps.map(p => `${p.x},${p.y}`).join(' ');
 const round2 = (p: Point): Point => ({ x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100 });
 const isTyping = (e: { target: EventTarget | null }) => (e.target as HTMLElement).closest?.('input, textarea, select');
 
+/** Черновик при перетаскивании проёма: сдвиг вдоль стены или новый край, с точностью до сантиметра, в пределах стены. */
+function dragOpening(pr: Project, d: { kind: 'opening' | 'op-end'; start: Point; id: Id; end?: 0 | 1 }, p: Point) {
+  const o = pr.openings[d.id], w = o && pr.walls[o.wall];
+  if (!o || !w) return;
+  const a = pr.nodes[w.a]!, b = pr.nodes[w.b]!;
+  const length = dist(a, b);
+  const du = Math.round(dot(sub(p, d.start), norm(sub(b, a))) * 100) / 100;
+  if (d.kind === 'opening') { o.offset = clampOffset(o.offset + du, o.width, length); return; }
+  const u1 = o.offset + o.width;
+  if (d.end === 0) {
+    const u0 = Math.round(Math.min(Math.max(0, o.offset + du), u1 - MIN_OPENING) * 100) / 100;
+    o.width = Math.round((u1 - u0) * 100) / 100;
+    o.offset = u0;
+  } else {
+    o.width = Math.round((Math.min(Math.max(o.offset + MIN_OPENING, u1 + du), length) - o.offset) * 100) / 100;
+  }
+}
+
 export function PlanView() {
   const project = useShownProject();
   const tool = useEditor(s => s.tool);
@@ -36,6 +62,7 @@ export function PlanView() {
   const selection = useEditor(s => s.selection);
   const selectedRoom = useEditor(s => s.room);
   const anchor = useEditor(s => s.anchor);
+  const selectedOpening = useEditor(s => s.opening);
   const st = useEditor.getState();
 
   const svgRef = useRef<SVGSVGElement>(null);
@@ -138,6 +165,17 @@ export function PlanView() {
   };
   const snap = snapAt(cursor);
 
+  // ---------- инструменты «Окно» и «Дверь»: проём под курсором ----------
+  const placeKind = TOOL_KIND[tool];
+  const placingAt = (p: Point | null): Opening | null => {
+    if (!placeKind || !p) return null;
+    const onWall = ops.wallNear(project, p, SNAP_PX / view.s);
+    if (!onWall) return null;
+    const w = project.walls[onWall.id]!;
+    return newOpening(project, w.id, placeKind, Math.round(dist(project.nodes[w.a]!, onWall.p) * 100) / 100);
+  };
+  const placing = placingAt(cursor);
+
   // ---------- клавиатура ----------
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -153,6 +191,11 @@ export function PlanView() {
         // цифра, набранная мимо поля длины, всё равно попадает в него
         if ((s.chain.length || s.start) && /^[0-9]$/.test(e.key)) { setTyped(t => t + e.key); lengthRef.current?.focus(); e.preventDefault(); }
         return;
+      }
+      if (TOOL_KIND[s.tool] && e.key === 'Escape') { s.setTool('select'); return; }
+      if (s.opening) {
+        if (e.key === 'Delete' || e.key === 'Backspace') { s.deleteOpening(s.opening); return; }
+        if (e.key === 'Escape') { s.selectOpening(null); return; }
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && s.selection.length) { s.deleteWalls(s.selection); return; }
       if (e.key === 'Escape') { s.setSelection([]); return; }
@@ -192,6 +235,15 @@ export function PlanView() {
     const target = e.target as Element;
     const nodeId = target.getAttribute('data-node');
     const wallId = target.getAttribute('data-wall');
+    const openingId = target.getAttribute('data-opening');
+    const end = target.getAttribute('data-op-end');
+    if (openingId) {
+      st.selectOpening(openingId);
+      drag.current = end !== null
+        ? { kind: 'op-end', start: p, id: openingId, end: end === '1' ? 1 : 0, moved: false }
+        : { kind: 'opening', start: p, id: openingId, moved: false };
+      return;
+    }
     if (nodeId) { drag.current = { kind: 'node', start: p, id: nodeId, moved: false }; return; }
     if (wallId) {
       let sel = selection;
@@ -230,6 +282,8 @@ export function PlanView() {
     if (d.kind === 'move') {
       const delta = round2(sub(p, d.start));
       st.setPreview(draftWith(pr => ops.moveNodes(pr, d.nodes, delta)));
+    } else if (d.kind === 'opening' || d.kind === 'op-end') {
+      st.setPreview(draftWith(pr => dragOpening(pr, d, p)));
     } else if (d.kind === 'node') {
       const base = useEditor.getState().project;
       const tol = SNAP_PX / view.s;
@@ -254,12 +308,20 @@ export function PlanView() {
       if (at) { st.placePoint(at.p, at.node, at.wall); clearTyped(); }
       return;
     }
+    if (placeKind) {
+      const o = placingAt(toPlan(e.clientX, e.clientY));
+      if (o) st.addOpening(o.wall, o.kind, o.offset + o.width / 2);
+      return;
+    }
     const d = drag.current;
     drag.current = null;
     if (!d) return;
     const p = toPlan(e.clientX, e.clientY);
     if (d.kind === 'move') {
       if (d.moved) st.moveNodes(d.nodes, round2(sub(p, d.start)));
+    } else if (d.kind === 'opening' || d.kind === 'op-end') {
+      const o = useEditor.getState().preview?.openings[d.id];
+      if (d.moved && o) st.updateOpening(d.id, { offset: o.offset, width: o.width });
     } else if (d.kind === 'node') {
       const preview = useEditor.getState().preview;
       if (d.moved && preview) st.moveNode(d.id, preview.nodes[d.id]!, d.wall);
@@ -308,6 +370,22 @@ export function PlanView() {
   };
 
   const preview = tool === 'wall' && last && snap ? { a: last as Point, b: snap.p } : null;
+  const bad = badOpenings(project);
+  // у выбранного или ставящегося проёма — размеры: от углов стены и ширина
+  const dimsOf = placing ?? (selectedOpening ? project.openings[selectedOpening] : undefined);
+  const openingDims = (o: Opening) => {
+    const w = project.walls[o.wall];
+    if (!w) return null;
+    const a = project.nodes[w.a]!, b = project.nodes[w.b]!, d = norm(sub(b, a));
+    const p0 = add(a, mul(d, o.offset)), p1 = add(a, mul(d, o.offset + o.width));
+    return (
+      <g className="snap-dims">
+        {o.offset > 0.005 && wallLabel(a, p0, w.side, w.thickness, formatMeters(o.offset), 'oa')}
+        {wallLabel(p0, p1, w.side, w.thickness, formatMeters(o.width), 'ow')}
+        {dist(p1, b) > 0.005 && wallLabel(p1, b, w.side, w.thickness, formatMeters(dist(p1, b)), 'ob')}
+      </g>
+    );
+  };
   const handles = tool === 'select' ? ops.nodesOfWalls(project, selection) : [];
   const anchorOf = (w?: Wall) => (w && anchor === w.b ? w.b : w?.a);
   const empty = !Object.keys(project.walls).length;
@@ -341,7 +419,8 @@ export function PlanView() {
         })}
 
         {walls.map(w => (
-          <polygon key={w.id} data-wall={w.id} points={pts(wallOutline(project, w))} className={`wall${selected.has(w.id) ? ' selected' : ''}`} />
+          <polygon key={w.id} data-wall={w.id} points={pts(wallOutline(project, w))}
+            className={`wall${selected.has(w.id) ? ' selected' : ''}${w.height !== undefined && w.height < project.ceilingHeight ? ' low' : ''}`} />
         ))}
         {/* окрашенная грань — полоска её цвета вдоль грани со стороны пола: на тёмной стене тёмный цвет не виден */}
         {walls.flatMap(w => {
@@ -359,7 +438,12 @@ export function PlanView() {
             );
           });
         })}
-        {walls.filter(w => w.id !== snap?.wall).map(w => wallLabel(project.nodes[w.a]!, project.nodes[w.b]!, w.side, w.thickness, formatMeters(wallLength(project, w)), `l${w.id}`))}
+        {Object.values(project.openings).map(o => (
+          <OpeningShape key={o.id} project={project} o={o} px={px} selected={o.id === selectedOpening} className={bad.has(o.id) ? 'bad' : undefined} />
+        ))}
+        {placing && <OpeningShape project={project} o={placing} px={px} className="placing" />}
+        {dimsOf && openingDims(dimsOf)}
+        {walls.filter(w => w.id !== snap?.wall && w.id !== dimsOf?.wall).map(w => wallLabel(project.nodes[w.a]!, project.nodes[w.b]!, w.side, w.thickness, formatMeters(wallLength(project, w)), `l${w.id}`))}
 
         {handles.map(id => {
           const n = project.nodes[id]!;

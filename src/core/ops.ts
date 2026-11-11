@@ -3,6 +3,7 @@ import {
   add, dist, dot, interiorSide, mul, norm, pointInPolygon, roomInnerPolygon, roomPolygon, roomsOfWall, segmentParam, signedArea, STRAIGHT, sub,
   wallBetween,
 } from './geometry';
+import { dropOrphanOpenings, flipOpening, openingsOfWall, splitOpenings } from './openings';
 import { newId, type Face, type Id, type Point, type Project, type Room, type Wall, type WallSide } from './types';
 import { round } from './units';
 
@@ -90,6 +91,7 @@ export function splitWall(project: Project, wallId: Id, p: Point, nodeId?: Id): 
   }
   const id2 = newId();
   project.walls[id2] = { ...wall, id: id2, a: id, b };
+  splitOpenings(project, wall.id, id2, dist(project.nodes[a]!, project.nodes[id]!));
   wall.b = id;
   return id;
 }
@@ -240,6 +242,7 @@ export function deleteWalls(project: Project, wallIds: Id[]): void {
     ends.add(wall.a);
     ends.add(wall.b);
   }
+  dropOrphanOpenings(project);
   // склеиваем, только когда удалено всё: иначе склейка поглотит стену, которую тоже просили удалить
   for (const id of ends) {
     const used = Object.values(project.walls).some(w => w.a === id || w.b === id);
@@ -271,12 +274,20 @@ function joinStraight(project: Project, nodeId: Id): void {
   const n = project.nodes[nodeId]!;
   const x = w1.a === nodeId ? w1.b : w1.a, y = w2.a === nodeId ? w2.b : w2.a;
   const p = project.nodes[x]!, q = project.nodes[y]!;
-  if (dot(norm(sub(p, n)), norm(sub(q, n))) > -STRAIGHT || w1.thickness !== w2.thickness) return;
+  if (dot(norm(sub(p, n)), norm(sub(q, n))) > -STRAIGHT || w1.thickness !== w2.thickness || w1.height !== w2.height) return;
   // стороны толщины в направлении x → n → y: у стены, нарисованной навстречу, сторона меняет знак
   const s1 = w1.b === nodeId ? w1.side : -w1.side;
   const s2 = w2.a === nodeId ? w2.side : -w2.side;
   if (s1 !== s2) return;
   if (w1.a === nodeId && (w1.paintLeft || w1.paintRight)) [w1.paintLeft, w1.paintRight] = [w1.paintRight, w1.paintLeft]; // стена развернулась — грани меняются местами
+  // проёмы обеих частей — на склеенную стену x → y, мерить от x
+  const len1 = dist(p, n), len2 = dist(n, q);
+  for (const o of openingsOfWall(project, w1.id)) if (w1.a === nodeId) flipOpening(o, len1);
+  for (const o of openingsOfWall(project, w2.id)) {
+    if (w2.b === nodeId) flipOpening(o, len2);
+    o.wall = w1.id;
+    o.offset = round(o.offset + len1);
+  }
   w1.a = x;
   w1.b = y;
   w1.side = s1 as WallSide;

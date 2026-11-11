@@ -3,9 +3,11 @@ import { immer } from 'zustand/middleware/immer';
 import { temporal } from 'zundo';
 import { dist } from '../core/geometry';
 import * as ops from '../core/ops';
-import { emptyProject, type Face, type Id, type Point, type Project, type WallSide } from '../core/types';
+import { addOpening, clampOffset, setOpeningKind } from '../core/openings';
+import { wallLength } from '../core/geometry';
+import { emptyProject, type Face, type Id, type Opening, type OpeningKind, type Point, type Project, type WallSide } from '../core/types';
 
-export type Tool = 'select' | 'wall';
+export type Tool = 'select' | 'wall' | 'window' | 'door';
 /** Куда встанет первая точка: в угол, на стену или в свободное место. */
 export interface ChainStart { p: Point; node?: Id; wall?: Id }
 
@@ -18,6 +20,8 @@ interface EditorState {
   selection: Id[];
   /** Выбранная комната (тогда стены не выбраны). */
   room: Id | null;
+  /** Выбранный проём (тогда ни стены, ни комната не выбраны). */
+  opening: Id | null;
   /** Угол выбранной стены, который стоит на месте при новой длине: ближний к месту клика. */
   anchor: Id | null;
   /** Узлы рисуемой сейчас цепочки стен. */
@@ -29,6 +33,15 @@ interface EditorState {
   setSelection: (ids: Id[]) => void;
   setAnchor: (id: Id | null) => void;
   selectRoom: (id: Id | null) => void;
+  selectOpening: (id: Id | null) => void;
+  /** Поставить окно или дверь на стену серединой в center (м от узла a) и выбрать его. */
+  addOpening: (wall: Id, kind: OpeningKind, center: number) => void;
+  /** Поменять поля проёма одним шагом отмены. Сдвиг и ширина не выходят за стену. */
+  updateOpening: (id: Id, patch: Partial<Pick<Opening, 'offset' | 'width' | 'height' | 'sill' | 'hinge' | 'swing'>>) => void;
+  setOpeningKind: (id: Id, kind: OpeningKind) => void;
+  deleteOpening: (id: Id) => void;
+  /** Своя высота стен; null — до потолка. */
+  setWallHeight: (ids: Id[], h: number | null) => void;
   renameRoom: (id: Id, name: string) => void;
   /**
    * Поставить точку цепочки: в существующий узел, на стену (Т-стык — стена разбивается) или новую.
@@ -60,14 +73,51 @@ export const useEditor = create<EditorState>()(
       tool: 'select',
       selection: [],
       room: null,
+      opening: null,
       anchor: null,
       chain: [],
       start: null,
 
-      setTool: tool => set(s => { s.tool = tool; s.chain = []; s.start = null; if (tool === 'wall') { s.selection = []; s.room = null; } }),
-      setSelection: ids => set(s => { s.selection = ids; s.room = null; }),
+      setTool: tool => set(s => { s.tool = tool; s.chain = []; s.start = null; if (tool === 'wall') { s.selection = []; s.room = null; s.opening = null; } }),
+      setSelection: ids => set(s => { s.selection = ids; s.room = null; s.opening = null; }),
       setAnchor: id => set(s => { s.anchor = id; }),
-      selectRoom: id => set(s => { s.room = id; s.selection = []; }),
+      selectRoom: id => set(s => { s.room = id; s.selection = []; s.opening = null; }),
+      selectOpening: id => set(s => { s.opening = id; s.selection = []; s.room = null; }),
+      addOpening: (wall, kind, center) => set(s => {
+        if (!s.project.walls[wall]) return;
+        s.opening = addOpening(s.project, wall, kind, center);
+        s.selection = [];
+        s.room = null;
+      }),
+      updateOpening: (id, patch) => set(s => {
+        s.preview = null;
+        const o = s.project.openings[id];
+        const w = o && s.project.walls[o.wall];
+        if (!o || !w) return;
+        Object.assign(o, patch);
+        const length = wallLength(s.project, w);
+        o.width = Math.max(0.1, Math.min(o.width, length));
+        o.offset = clampOffset(o.offset, o.width, length);
+        o.sill = Math.max(0, o.sill);
+        o.height = Math.max(0.1, o.height);
+      }),
+      setOpeningKind: (id, kind) => set(s => {
+        const o = s.project.openings[id];
+        if (o) setOpeningKind(s.project, o, kind);
+      }),
+      deleteOpening: id => set(s => {
+        delete s.project.openings[id];
+        if (s.opening === id) s.opening = null;
+      }),
+      setWallHeight: (ids, h) => set(s => {
+        if (h !== null && h <= 0) return;
+        for (const id of ids) {
+          const w = s.project.walls[id];
+          if (!w) continue;
+          if (h === null || Math.abs(h - s.project.ceilingHeight) < 0.0005) delete w.height;
+          else w.height = h;
+        }
+      }),
       renameRoom: (id, name) => set(s => {
         const r = s.project.rooms[id];
         if (r && name.trim()) r.name = name.trim();
@@ -128,6 +178,7 @@ export const useEditor = create<EditorState>()(
         ops.deleteWalls(s.project, ids);
         s.selection = s.selection.filter(id => s.project.walls[id]);
         if (s.room && !s.project.rooms[s.room]) s.room = null;
+        if (s.opening && !s.project.openings[s.opening]) s.opening = null;
       }),
       setDefaultThickness: t => set(s => { if (t > 0) s.project.defaultThickness = t; }),
       setCeilingHeight: h => set(s => { if (h > 0) s.project.ceilingHeight = h; }),
@@ -149,6 +200,7 @@ function afterHistory() {
     chain: [], start: null, preview: null,
     selection: s.selection.filter(id => s.project.walls[id]),
     room: s.room && s.project.rooms[s.room] ? s.room : null,
+    opening: s.opening && s.project.openings[s.opening] ? s.opening : null,
   });
 }
 export const undo = () => { useEditor.temporal.getState().undo(); afterHistory(); };
@@ -156,7 +208,8 @@ export const redo = () => { useEditor.temporal.getState().redo(); afterHistory()
 
 /** Открыть другой проект: выбор и рисование сбрасываются, история отмены начинается заново. */
 export function openProject(project: Project) {
-  useEditor.setState({ project, preview: null, chain: [], start: null, selection: [], room: null, anchor: null });
+  project.openings ??= {}; // проекты, сохранённые до проёмов
+  useEditor.setState({ project, preview: null, chain: [], start: null, selection: [], room: null, opening: null, anchor: null });
   useEditor.temporal.getState().clear();
 }
 

@@ -1,7 +1,8 @@
 // Файл проекта: JSON с меткой формата и версией. Чтение проверяет всё, что потом используется,
 // чтобы испорченный или чужой файл не ломал приложение, а давал понятную ошибку.
 import { dropLooseNodes } from './ops';
-import { emptyProject, newId, type Project, type Room, type Wall } from './types';
+import { KIND_DEFAULTS } from './openings';
+import { emptyProject, newId, type Opening, type OpeningKind, type Project, type Room, type Wall } from './types';
 
 export const FILE_FORMAT = 'planner';
 export const FILE_VERSION = 1;
@@ -49,6 +50,7 @@ export function projectFromFile(text: string): Project {
     const wall: Wall = { id, a: w.a, b: w.b, thickness, side };
     if (isColor(w.paintLeft)) wall.paintLeft = w.paintLeft;
     if (isColor(w.paintRight)) wall.paintRight = w.paintRight;
+    if (isNum(w.height) && w.height > 0) wall.height = w.height;
     p.walls[id] = wall;
   }
   for (const [id, r] of Object.entries(src.rooms)) {
@@ -56,6 +58,17 @@ export function projectFromFile(text: string): Project {
     if (!isObj(r) || !Array.isArray(r.nodes) || r.nodes.length < 3) continue;
     if (!r.nodes.every(n => typeof n === 'string' && p.nodes[n])) continue;
     p.rooms[id] = { id, name: typeof r.name === 'string' && r.name.trim() ? r.name : 'Комната', nodes: r.nodes as string[] } satisfies Room;
+  }
+  // проёмы — необязательные (файлы до них); проём на несуществующей стене или непонятного вида пропускаем
+  if (isObj(src.openings)) {
+    for (const [id, o] of Object.entries(src.openings)) {
+      if (!isObj(o) || typeof o.wall !== 'string' || !p.walls[o.wall] || typeof o.kind !== 'string' || !(o.kind in KIND_DEFAULTS)) continue;
+      if (!isNum(o.offset) || !isNum(o.width) || !isNum(o.height) || !isNum(o.sill) || o.width <= 0 || o.height <= 0) continue;
+      p.openings[id] = {
+        id, wall: o.wall, kind: o.kind as OpeningKind, offset: o.offset, width: o.width, height: o.height, sill: Math.max(0, o.sill),
+        hinge: o.hinge === 'b' ? 'b' : 'a', swing: o.swing === -1 ? -1 : 1,
+      } satisfies Opening;
+    }
   }
   dropLooseNodes(p);
   p.id = newId();
