@@ -1,29 +1,31 @@
 // Сборка документации: все docs/NN-*.md по порядку → один файл docs/index.html с оглавлением.
 // Запуск: npm run docs. Открывается двойным кликом, интернет не нужен (кроме шрифтов — без них будут системные).
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { marked } from 'marked';
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { marked } from "marked";
 
-const DIR = 'docs';
-const files = readdirSync(DIR).filter(f => /^\d\d-.+\.md$/.test(f)).sort();
+const DIR = "docs";
+const files = readdirSync(DIR)
+  .filter((f) => /^\d\d-.+\.md$/.test(f))
+  .sort();
 const toc = [];
-let body = '';
+let body = "";
 
 files.forEach((file, i) => {
-  let html = marked.parse(readFileSync(join(DIR, file), 'utf8'));
+  let html = marked.parse(readFileSync(join(DIR, file), "utf8"));
   let sub = 0;
   // заголовкам — якоря, оглавлению — разделы (h1) и подразделы (h2)
   html = html.replace(/<h([12])>(.*?)<\/h\1>/g, (_, level, text) => {
-    const plain = text.replace(/<[^>]+>/g, '');
-    const id = level === '1' ? `s${i + 1}` : `s${i + 1}-${++sub}`;
+    const plain = text.replace(/<[^>]+>/g, "");
+    const id = level === "1" ? `s${i + 1}` : `s${i + 1}-${++sub}`;
     toc.push({ level: Number(level), id, text: plain });
     return `<h${level} id="${id}">${text}</h${level}>`;
   });
   body += `<section>${html}</section>\n`;
 });
 
-const nav = toc.map(t => `<a class="l${t.level}" href="#${t.id}">${t.text}</a>`).join('\n');
-const built = new Date().toLocaleDateString('ru-RU');
+const nav = toc.map((t) => `<a class="l${t.level}" href="#${t.id}">${t.text}</a>`).join("\n");
+const built = new Date().toLocaleDateString("ru-RU");
 
 const page = `<!doctype html>
 <html lang="ru">
@@ -86,5 +88,5 @@ document.querySelectorAll('h1[id],h2[id]').forEach(h=>io.observe(h));
 </html>
 `;
 
-writeFileSync(join(DIR, 'index.html'), page);
+writeFileSync(join(DIR, "index.html"), page);
 console.log(`документация: ${files.length} разделов, ${toc.length} пунктов оглавления → docs/index.html`);

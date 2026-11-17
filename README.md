@@ -12,6 +12,8 @@
 npm install      # поставить зависимости (кэш npm задан в .npmrc — на диске D)
 npm run dev      # открыть приложение в браузере с автообновлением
 npm test         # тесты
+npm run format   # подогнать оформление всего кода (Biome)
+npm run lint     # проверить оформление и правила без правок
 npm run build    # сборка в папку dist
 npm run shot     # снимок запущенного приложения через Microsoft Edge (для проверки глазами)
 npm run check:walls  # нарисовать комнату 6,55 × 3,40 вводом длин и снять экран
@@ -24,7 +26,7 @@ npm run docs     # собрать документацию в docs/index.html
 
 ## Стек
 
-TypeScript, React, Vite; 3D — three.js через React Three Fiber и drei; состояние — Zustand + Immer, отмена действий — zundo; хранение в браузере — Dexie (IndexedDB); тесты — Vitest. Все библиотеки под лицензией MIT.
+TypeScript, React, Vite; 3D — three.js через React Three Fiber и drei; состояние — Zustand + Immer, отмена действий — zundo; хранение в браузере — Dexie (IndexedDB); тесты — Vitest; оформление кода — Biome. Все библиотеки под лицензией MIT (Biome — MIT или Apache-2.0, только для разработки).
 
 ## Структура
 

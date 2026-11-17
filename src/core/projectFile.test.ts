@@ -1,42 +1,49 @@
-import { describe, expect, it } from 'vitest';
-import * as ops from './ops';
-import { fileName, projectFromFile, projectToFile } from './projectFile';
-import { emptyProject } from './types';
+import { describe, expect, it } from "vitest";
+import * as ops from "./ops";
+import { fileName, projectFromFile, projectToFile } from "./projectFile";
+import { emptyProject } from "./types";
 
 function sample() {
-  const p = emptyProject('Однушка');
+  const p = emptyProject("Однушка");
   p.ceilingHeight = 2.65;
-  const ids = [[0, 0], [3, 0], [3, 2], [0, 2]].map(([x, y]) => ops.addNode(p, { x: x!, y: y! }));
+  const ids = [
+    [0, 0],
+    [3, 0],
+    [3, 2],
+    [0, 2],
+  ].map(([x, y]) => ops.addNode(p, { x: x!, y: y! }));
   ids.forEach((id, i) => ops.addWall(p, id, ids[(i + 1) % ids.length]!));
   ops.addRoom(p, ids);
   return p;
 }
 
-describe('файл проекта', () => {
-  it('сохранение и загрузка дают тот же проект, но с новым id', () => {
+describe("файл проекта", () => {
+  it("сохранение и загрузка дают тот же проект, но с новым id", () => {
     const p = sample();
     const back = projectFromFile(projectToFile(p));
     expect(back.id).not.toBe(p.id);
-    expect({ ...back, id: '', updatedAt: 0 }).toEqual({ ...p, id: '', updatedAt: 0 });
+    expect({ ...back, id: "", updatedAt: 0 }).toEqual({ ...p, id: "", updatedAt: 0 });
   });
 
-  it('не JSON, чужой JSON и файл новой версии — понятные ошибки', () => {
-    expect(() => projectFromFile('PK\u0003\u0004')).toThrow('не JSON');
-    expect(() => projectFromFile('{"a":1}')).toThrow('не файл проекта');
-    expect(() => projectFromFile(JSON.stringify({ format: 'planner', version: 99, project: {} }))).toThrow('более новой');
+  it("не JSON, чужой JSON и файл новой версии — понятные ошибки", () => {
+    expect(() => projectFromFile("PK\u0003\u0004")).toThrow("не JSON");
+    expect(() => projectFromFile('{"a":1}')).toThrow("не файл проекта");
+    expect(() => projectFromFile(JSON.stringify({ format: "planner", version: 99, project: {} }))).toThrow(
+      "более новой",
+    );
   });
 
-  it('стена на несуществующий угол — ошибка, а не сломанный план', () => {
+  it("стена на несуществующий угол — ошибка, а не сломанный план", () => {
     const p = sample();
     const w = Object.values(p.walls)[0]!;
-    w.b = 'нет';
-    expect(() => projectFromFile(projectToFile(p))).toThrow('повреждён');
+    w.b = "нет";
+    expect(() => projectFromFile(projectToFile(p))).toThrow("повреждён");
   });
 
-  it('битая комната пропускается, точки без стен убираются, пустая толщина — по умолчанию', () => {
+  it("битая комната пропускается, точки без стен убираются, пустая толщина — по умолчанию", () => {
     const p = sample();
     const room = Object.values(p.rooms)[0]!;
-    room.nodes = [...room.nodes, 'нет'];
+    room.nodes = [...room.nodes, "нет"];
     ops.addNode(p, { x: 9, y: 9 });
     (Object.values(p.walls)[0] as { thickness: unknown }).thickness = null;
     const back = projectFromFile(projectToFile(p));
@@ -45,21 +52,21 @@ describe('файл проекта', () => {
     expect(Object.values(back.walls)[0]!.thickness).toBe(p.defaultThickness);
   });
 
-  it('имя файла без запрещённых знаков', () => {
+  it("имя файла без запрещённых знаков", () => {
     const p = emptyProject('Квартира: план "А"/2');
-    expect(fileName(p)).toBe('Квартира план А 2.planner.json');
-    expect(fileName(emptyProject('  '))).toBe('Проект.planner.json');
+    expect(fileName(p)).toBe("Квартира план А 2.planner.json");
+    expect(fileName(emptyProject("  "))).toBe("Проект.planner.json");
   });
 });
 
-describe('файл проекта: цвет', () => {
-  it('цвет граней сохраняется, чужая строка вместо цвета отбрасывается', () => {
+describe("файл проекта: цвет", () => {
+  it("цвет граней сохраняется, чужая строка вместо цвета отбрасывается", () => {
     const p = sample();
     const [w1, w2] = Object.values(p.walls);
-    w1!.paintLeft = '#A2AC96';
-    (w2 as unknown as { paintRight: string }).paintRight = 'red; drop';
+    w1!.paintLeft = "#A2AC96";
+    (w2 as unknown as { paintRight: string }).paintRight = "red; drop";
     const back = projectFromFile(projectToFile(p));
-    expect(back.walls[w1!.id]!.paintLeft).toBe('#A2AC96');
+    expect(back.walls[w1!.id]!.paintLeft).toBe("#A2AC96");
     expect(back.walls[w2!.id]!.paintRight).toBeUndefined();
   });
 });

@@ -1,16 +1,48 @@
-import { describe, expect, it } from 'vitest';
-import { perimeter, roomInnerPolygon, roomPolygon, signedArea, wallBlocksView, wallLength, wallOutline } from './geometry';
+import { describe, expect, it } from "vitest";
 import {
-  addNode, addRoom, addWall, deleteWall, deleteWalls, insideFaces, paintFaces, paintOf, roomFaces, usedPaints, dropLooseNodes, moveNodes, nodesOfWalls, roomAt, roomByPath, setWallLength, splitWall, wallNear, wallsInRect, wallsOfRoom,
-} from './ops';
-import { emptyProject, type Project } from './types';
+  perimeter,
+  roomInnerPolygon,
+  roomPolygon,
+  signedArea,
+  wallBlocksView,
+  wallLength,
+  wallOutline,
+} from "./geometry";
+import {
+  addNode,
+  addRoom,
+  addWall,
+  deleteWall,
+  deleteWalls,
+  dropLooseNodes,
+  insideFaces,
+  moveNodes,
+  nodesOfWalls,
+  paintFaces,
+  paintOf,
+  roomAt,
+  roomByPath,
+  roomFaces,
+  setWallLength,
+  splitWall,
+  usedPaints,
+  wallNear,
+  wallsInRect,
+  wallsOfRoom,
+} from "./ops";
+import { emptyProject, type Project } from "./types";
 
 /** Комната по внутренним размерам: 6,55 × 3,40, стены 20 см. */
 function room(): { project: Project; walls: string[] } {
   const project = emptyProject();
   project.defaultThickness = 0.2;
-  const pts = [{ x: 0, y: 0 }, { x: 6.55, y: 0 }, { x: 6.55, y: 3.4 }, { x: 0, y: 3.4 }];
-  const ids = pts.map(p => addNode(project, p));
+  const pts = [
+    { x: 0, y: 0 },
+    { x: 6.55, y: 0 },
+    { x: 6.55, y: 3.4 },
+    { x: 0, y: 3.4 },
+  ];
+  const ids = pts.map((p) => addNode(project, p));
   const walls = ids.map((id, i) => addWall(project, id, ids[(i + 1) % ids.length]!));
   addRoom(project, ids);
   return { project, walls };
@@ -18,47 +50,47 @@ function room(): { project: Project; walls: string[] } {
 
 const near = (a: number, b: number) => expect(a).toBeCloseTo(b, 6);
 
-describe('комната из четырёх стен', () => {
-  it('площадь считается по внутренней стороне', () => {
+describe("комната из четырёх стен", () => {
+  it("площадь считается по внутренней стороне", () => {
     const { project } = room();
     const r = Object.values(project.rooms)[0]!;
     near(Math.abs(signedArea(roomPolygon(project, r))), 6.55 * 3.4);
   });
 
-  it('толщина уходит наружу, углы стыкуются «на ус»', () => {
+  it("толщина уходит наружу, углы стыкуются «на ус»", () => {
     const { project, walls } = room();
     const top = project.walls[walls[0]!]!; // от (0,0) к (6,55; 0); комната ниже, при y вниз
     const pts = wallOutline(project, top);
-    const ys = pts.map(p => p.y).sort((a, b) => a - b);
+    const ys = pts.map((p) => p.y).sort((a, b) => a - b);
     near(ys[0]!, -0.2); // наружная грань на 20 см выше линии
-    near(ys[3]!, 0);    // внутренняя грань — по линии
-    const xs = pts.map(p => p.x).sort((a, b) => a - b);
+    near(ys[3]!, 0); // внутренняя грань — по линии
+    const xs = pts.map((p) => p.x).sort((a, b) => a - b);
     near(xs[0]!, -0.2); // снаружи угол доходит до наружной грани соседней стены
     near(xs[3]!, 6.75);
   });
 
-  it('стены по центру тоже стыкуются без щелей', () => {
+  it("стены по центру тоже стыкуются без щелей", () => {
     const { project, walls } = room();
     for (const id of walls) project.walls[id]!.side = 0;
     const pts = wallOutline(project, project.walls[walls[0]!]!);
-    const xs = pts.map(p => p.x).sort((a, b) => a - b);
+    const xs = pts.map((p) => p.x).sort((a, b) => a - b);
     near(xs[0]!, -0.1);
     near(xs[1]!, 0.1);
   });
 });
 
-describe('правка', () => {
-  it('новая длина: угол a стоит, соседняя стена переезжает параллельно, комната остаётся прямоугольной', () => {
+describe("правка", () => {
+  it("новая длина: угол a стоит, соседняя стена переезжает параллельно, комната остаётся прямоугольной", () => {
     const { project, walls } = room();
     const w = project.walls[walls[0]!]!; // верх, от (0; 0) к (6,55; 0)
     setWallLength(project, w, 7);
     near(wallLength(project, w), 7);
     near(wallLength(project, project.walls[walls[1]!]!), 3.4); // правая стена той же длины
-    near(wallLength(project, project.walls[walls[2]!]!), 7);   // низ вытянулся вместе с верхом
+    near(wallLength(project, project.walls[walls[2]!]!), 7); // низ вытянулся вместе с верхом
     near(Math.abs(signedArea(roomPolygon(project, Object.values(project.rooms)[0]!))), 7 * 3.4);
   });
 
-  it('новая длина: стоит выбранный угол b, переезжает левая стена', () => {
+  it("новая длина: стоит выбранный угол b, переезжает левая стена", () => {
     const { project, walls } = room();
     const w = project.walls[walls[0]!]!;
     setWallLength(project, w, 6, w.b);
@@ -67,9 +99,11 @@ describe('правка', () => {
     near(project.nodes[project.walls[walls[3]!]!.a]!.x, 0.55); // нижний левый угол тоже
   });
 
-  it('новая длина отдельной стены и продолжения по прямой двигает только угол', () => {
+  it("новая длина отдельной стены и продолжения по прямой двигает только угол", () => {
     const project = emptyProject();
-    const a = addNode(project, { x: 0, y: 0 }), b = addNode(project, { x: 2, y: 0 }), c = addNode(project, { x: 5, y: 0 });
+    const a = addNode(project, { x: 0, y: 0 });
+    const b = addNode(project, { x: 2, y: 0 });
+    const c = addNode(project, { x: 5, y: 0 });
     const w = addWall(project, a, b);
     addWall(project, b, c);
     setWallLength(project, project.walls[w]!, 2.5);
@@ -77,15 +111,15 @@ describe('правка', () => {
     near(project.nodes[c]!.x, 5);
   });
 
-  it('новая длина части стены с перегородкой: перегородка едет параллельно', () => {
+  it("новая длина части стены с перегородкой: перегородка едет параллельно", () => {
     const { project, top, bottom } = partitioned();
-    const left = Object.values(project.walls).find(w => w.b === top && project.nodes[w.a]!.x === 0)!;
+    const left = Object.values(project.walls).find((w) => w.b === top && project.nodes[w.a]!.x === 0)!;
     setWallLength(project, left, 4);
     near(project.nodes[top]!.x, 4);
     near(project.nodes[bottom]!.x, 4);
   });
 
-  it('перенос группы сдвигает углы, комната сохраняет площадь', () => {
+  it("перенос группы сдвигает углы, комната сохраняет площадь", () => {
     const { project, walls } = room();
     moveNodes(project, nodesOfWalls(project, walls), { x: 1, y: -0.5 });
     const r = Object.values(project.rooms)[0]!;
@@ -93,7 +127,7 @@ describe('правка', () => {
     near(project.nodes[project.walls[walls[0]!]!.a]!.x, 1);
   });
 
-  it('рамка: слева направо — целиком, справа налево — касание', () => {
+  it("рамка: слева направо — целиком, справа налево — касание", () => {
     const { project } = room();
     // рамка вокруг верхней стены целиком
     expect(wallsInRect(project, { x: -1, y: -1 }, { x: 7, y: 1 }, false)).toHaveLength(1);
@@ -103,7 +137,7 @@ describe('правка', () => {
     expect(wallsInRect(project, { x: -1, y: 1.5 }, { x: 8, y: 2 }, true)).toHaveLength(2);
   });
 
-  it('удаление стены разбирает комнату', () => {
+  it("удаление стены разбирает комнату", () => {
     const { project, walls } = room();
     deleteWall(project, walls[0]!);
     expect(Object.keys(project.rooms)).toHaveLength(0);
@@ -114,7 +148,9 @@ describe('правка', () => {
 
 /** Площади комнат по внутренним граням, по возрастанию. */
 const areas = (project: Project) =>
-  Object.values(project.rooms).map(r => Math.abs(signedArea(roomInnerPolygon(project, r)))).sort((a, b) => a - b);
+  Object.values(project.rooms)
+    .map((r) => Math.abs(signedArea(roomInnerPolygon(project, r))))
+    .sort((a, b) => a - b);
 
 /** Перегородка 12 см поперёк комнаты на x = 3: от верхней стены к нижней. */
 function partitioned() {
@@ -127,8 +163,8 @@ function partitioned() {
   return { project, walls, top, bottom, stem };
 }
 
-describe('Т-стыки', () => {
-  it('стена разбивается узлом, комната сохраняет площадь', () => {
+describe("Т-стыки", () => {
+  it("стена разбивается узлом, комната сохраняет площадь", () => {
     const { project, walls } = room();
     const id = splitWall(project, walls[0]!, { x: 3, y: 0 });
     expect(Object.keys(project.walls)).toHaveLength(5);
@@ -137,19 +173,21 @@ describe('Т-стыки', () => {
     near(Math.abs(signedArea(roomPolygon(project, r))), 6.55 * 3.4);
   });
 
-  it('сквозная стена режется прямо, примыкающая упирается в её грань', () => {
+  it("сквозная стена режется прямо, примыкающая упирается в её грань", () => {
     const { project, walls } = room();
     const id = splitWall(project, walls[0]!, { x: 3, y: 0 });
     const stem = addWall(project, id, addNode(project, { x: 3, y: 2 }));
     // левая половина верхней стены кончается ровно на x = 3 обеими гранями — без дыры над перегородкой
     const half = wallOutline(project, project.walls[walls[0]!]!);
-    expect(half.filter(p => Math.abs(p.x - 3) < 1e-9)).toHaveLength(2);
+    expect(half.filter((p) => Math.abs(p.x - 3) < 1e-9)).toHaveLength(2);
     // перегородка начинается от внутренней грани (линии) верхней стены
-    const ys = wallOutline(project, project.walls[stem]!).map(p => p.y).sort((a, b) => a - b);
+    const ys = wallOutline(project, project.walls[stem]!)
+      .map((p) => p.y)
+      .sort((a, b) => a - b);
     near(ys[0]!, 0);
   });
 
-  it('стену находит у курсора, но не у самого угла', () => {
+  it("стену находит у курсора, но не у самого угла", () => {
     const { project } = room();
     const hit = wallNear(project, { x: 3, y: 0.05 }, 0.1);
     expect(hit).toBeDefined();
@@ -157,7 +195,7 @@ describe('Т-стыки', () => {
     expect(wallNear(project, { x: 0.003, y: -0.002 }, 0.1)).toBeUndefined(); // в 3 мм от угла — это угол
   });
 
-  it('перегородка делит комнату на две, площадь — без её толщины', () => {
+  it("перегородка делит комнату на две, площадь — без её толщины", () => {
     const { project } = partitioned();
     expect(Object.keys(project.rooms)).toHaveLength(2);
     const [left, right] = areas(project);
@@ -165,7 +203,7 @@ describe('Т-стыки', () => {
     near(right!, (6.55 - 3 - 0.12) * 3.4); // толщина перегородки ушла вправо от направления рисования
   });
 
-  it('удалили перегородку — комнаты слились, стены снова целые', () => {
+  it("удалили перегородку — комнаты слились, стены снова целые", () => {
     const { project, stem } = partitioned();
     deleteWalls(project, [stem]);
     expect(Object.keys(project.rooms)).toHaveLength(1);
@@ -174,11 +212,14 @@ describe('Т-стыки', () => {
     near(areas(project)[0]!, 6.55 * 3.4);
   });
 
-  it('пристройка: цепочка снаружи от угла до угла даёт новую комнату с общей стеной', () => {
+  it("пристройка: цепочка снаружи от угла до угла даёт новую комнату с общей стеной", () => {
     const { project } = room();
     const [, c1, c2] = Object.values(project.rooms)[0]!.nodes; // (6,55; 0) и (6,55; 3,4)
-    const p1 = addNode(project, { x: 9.55, y: 0 }), p2 = addNode(project, { x: 9.55, y: 3.4 });
-    addWall(project, c1!, p1); addWall(project, p1, p2); addWall(project, p2, c2!);
+    const p1 = addNode(project, { x: 9.55, y: 0 });
+    const p2 = addNode(project, { x: 9.55, y: 3.4 });
+    addWall(project, c1!, p1);
+    addWall(project, p1, p2);
+    addWall(project, p2, c2!);
     roomByPath(project, [c1!, p1, p2, c2!]);
     expect(Object.keys(project.rooms)).toHaveLength(2);
     // общая стена 20 см осталась толщиной в сторону новой комнаты — её площадь меньше на эту толщину
@@ -186,23 +227,27 @@ describe('Т-стыки', () => {
   });
 });
 
-describe('пристройка к разделённой комнате', () => {
-  it('новая комната появляется и тогда, когда соседка уже поделена перегородкой', () => {
+describe("пристройка к разделённой комнате", () => {
+  it("новая комната появляется и тогда, когда соседка уже поделена перегородкой", () => {
     const { project } = partitioned();
-    const right = Object.values(project.rooms).find(r => r.nodes.some(id => project.nodes[id]!.x === 6.55))!;
-    const c1 = right.nodes.find(id => project.nodes[id]!.x === 6.55 && project.nodes[id]!.y === 0)!;
-    const c2 = right.nodes.find(id => project.nodes[id]!.x === 6.55 && project.nodes[id]!.y === 3.4)!;
-    const p1 = addNode(project, { x: 9.55, y: 0 }), p2 = addNode(project, { x: 9.55, y: 3.4 });
-    addWall(project, c1, p1); addWall(project, p1, p2); addWall(project, p2, c2);
+    const right = Object.values(project.rooms).find((r) => r.nodes.some((id) => project.nodes[id]!.x === 6.55))!;
+    const c1 = right.nodes.find((id) => project.nodes[id]!.x === 6.55 && project.nodes[id]!.y === 0)!;
+    const c2 = right.nodes.find((id) => project.nodes[id]!.x === 6.55 && project.nodes[id]!.y === 3.4)!;
+    const p1 = addNode(project, { x: 9.55, y: 0 });
+    const p2 = addNode(project, { x: 9.55, y: 3.4 });
+    addWall(project, c1, p1);
+    addWall(project, p1, p2);
+    addWall(project, p2, c2);
     roomByPath(project, [c1, p1, p2, c2]);
     expect(Object.keys(project.rooms)).toHaveLength(3);
   });
 });
 
-describe('выбор комнаты', () => {
-  it('клик по полу находит свою половину разделённой комнаты, мимо пола — ничего', () => {
+describe("выбор комнаты", () => {
+  it("клик по полу находит свою половину разделённой комнаты, мимо пола — ничего", () => {
     const { project } = partitioned();
-    const left = roomAt(project, { x: 1, y: 1 }), right = roomAt(project, { x: 5, y: 1 });
+    const left = roomAt(project, { x: 1, y: 1 });
+    const right = roomAt(project, { x: 5, y: 1 });
     expect(left).toBeDefined();
     expect(right).toBeDefined();
     expect(left).not.toBe(right);
@@ -210,7 +255,7 @@ describe('выбор комнаты', () => {
     expect(roomAt(project, { x: 8, y: 1 })).toBeUndefined();
   });
 
-  it('стены комнаты и периметр по внутренним граням', () => {
+  it("стены комнаты и периметр по внутренним граням", () => {
     const { project, walls } = room();
     const r = Object.values(project.rooms)[0]!;
     expect(wallsOfRoom(project, r).sort()).toEqual([...walls].sort());
@@ -218,8 +263,8 @@ describe('выбор комнаты', () => {
   });
 });
 
-describe('одинокие точки', () => {
-  it('узлы без стен удаляются, узлы стен остаются', () => {
+describe("одинокие точки", () => {
+  it("узлы без стен удаляются, узлы стен остаются", () => {
     const { project } = room();
     addNode(project, { x: 10, y: 10 });
     dropLooseNodes(project);
@@ -227,17 +272,18 @@ describe('одинокие точки', () => {
   });
 });
 
-describe('прозрачные стены в 3D', () => {
-  it('прозрачна только стена между глазом и целью', () => {
+describe("прозрачные стены в 3D", () => {
+  it("прозрачна только стена между глазом и целью", () => {
     const { project, walls } = room(); // стены: верх, право, низ, лево
     const center = { x: 3.27, y: 1.7 };
-    const blocks = (eye: { x: number; y: number }) => walls.map(id => wallBlocksView(project, project.walls[id]!, eye, center));
+    const blocks = (eye: { x: number; y: number }) =>
+      walls.map((id) => wallBlocksView(project, project.walls[id]!, eye, center));
     expect(blocks({ x: 3, y: -6 })).toEqual([true, false, false, false]); // смотрим сверху плана
     expect(blocks({ x: 10, y: 6 })).toEqual([false, true, true, false]); // из угла — две стены
     expect(blocks({ x: 3, y: 1 })).toEqual([false, false, false, false]); // изнутри комнаты
   });
 
-  it('глаз вплотную к стене снаружи — стена не прячется', () => {
+  it("глаз вплотную к стене снаружи — стена не прячется", () => {
     const { project, walls } = room();
     // верхняя стена от −0,20 до 0; глаз на 3 см за её наружной гранью
     expect(wallBlocksView(project, project.walls[walls[0]!]!, { x: 3, y: -0.23 }, { x: 3, y: 1.7 })).toBe(false);
@@ -245,42 +291,46 @@ describe('прозрачные стены в 3D', () => {
   });
 });
 
-describe('цвет граней', () => {
-  it('цвет стен комнаты красит только грани внутрь', () => {
+describe("цвет граней", () => {
+  it("цвет стен комнаты красит только грани внутрь", () => {
     const { project, walls } = room();
     const r = Object.values(project.rooms)[0]!;
-    paintFaces(project, roomFaces(project, r), '#A2AC96');
+    paintFaces(project, roomFaces(project, r), "#A2AC96");
     for (const id of walls) {
       const w = project.walls[id]!;
       // толщина у комнаты наружу, значит внутрь — противоположная сторона
-      expect(paintOf(w, (-w.side) as 1 | -1)).toBe('#A2AC96');
+      expect(paintOf(w, -w.side as 1 | -1)).toBe("#A2AC96");
       expect(paintOf(w, w.side as 1 | -1)).toBeUndefined();
     }
-    expect(usedPaints(project)).toEqual(['#A2AC96']);
+    expect(usedPaints(project)).toEqual(["#A2AC96"]);
     paintFaces(project, roomFaces(project, r), null);
     expect(usedPaints(project)).toEqual([]);
   });
 
-  it('у перегородки грани внутрь — обе, и разрез стены сохраняет цвет', () => {
+  it("у перегородки грани внутрь — обе, и разрез стены сохраняет цвет", () => {
     const { project, walls } = room();
     const top = project.walls[walls[0]!]!;
-    const inner = (-top.side) as 1 | -1;
-    paintFaces(project, [{ wall: top.id, side: inner }], '#34493F');
+    const inner = -top.side as 1 | -1;
+    paintFaces(project, [{ wall: top.id, side: inner }], "#34493F");
     // перегородка посередине
     const n1 = splitWall(project, top.id, { x: 3, y: 0 });
     const n2 = splitWall(project, walls[2]!, { x: 3, y: 3.4 });
     const part = addWall(project, n1, n2);
     roomByPath(project, [n1, n2]);
-    const halves = Object.values(project.walls).filter(w => w.id !== part && paintOf(w, inner) === '#34493F');
+    const halves = Object.values(project.walls).filter((w) => w.id !== part && paintOf(w, inner) === "#34493F");
     expect(halves).toHaveLength(2); // обе половины верхней стены остались окрашены
-    expect(insideFaces(project, [project.walls[part]!]).map(f => f.side).sort()).toEqual([-1, 1]);
+    expect(
+      insideFaces(project, [project.walls[part]!])
+        .map((f) => f.side)
+        .sort(),
+    ).toEqual([-1, 1]);
   });
 
-  it('удаление перегородки склеивает стену и не теряет цвет, даже если половина нарисована навстречу', () => {
+  it("удаление перегородки склеивает стену и не теряет цвет, даже если половина нарисована навстречу", () => {
     const { project, walls } = room();
     const top = project.walls[walls[0]!]!;
-    const inner = (-top.side) as 1 | -1;
-    paintFaces(project, [{ wall: top.id, side: inner }], '#5E7972');
+    const inner = -top.side as 1 | -1;
+    paintFaces(project, [{ wall: top.id, side: inner }], "#5E7972");
     const n1 = splitWall(project, top.id, { x: 3, y: 0 });
     const n2 = splitWall(project, walls[2]!, { x: 3, y: 3.4 });
     const part = addWall(project, n1, n2);
@@ -288,11 +338,17 @@ describe('цвет граней', () => {
     // развернём первую половину: a↔b, сторона и грани меняются местами
     const w = project.walls[top.id]!;
     [w.a, w.b] = [w.b, w.a];
-    w.side = (-w.side) as 1 | -1;
+    w.side = -w.side as 1 | -1;
     [w.paintLeft, w.paintRight] = [w.paintRight, w.paintLeft];
     deleteWalls(project, [part]);
-    const merged = Object.values(project.walls).find(x => wallLength(project, x) > 6.5 && (x.paintLeft || x.paintRight))!;
+    const merged = Object.values(project.walls).find(
+      (x) => wallLength(project, x) > 6.5 && (x.paintLeft || x.paintRight),
+    )!;
     const r = Object.values(project.rooms)[0]!;
-    expect(roomFaces(project, r).filter(f => f.wall === merged.id).map(f => paintOf(merged, f.side))).toEqual(['#5E7972']);
+    expect(
+      roomFaces(project, r)
+        .filter((f) => f.wall === merged.id)
+        .map((f) => paintOf(merged, f.side)),
+    ).toEqual(["#5E7972"]);
   });
 });

@@ -34,7 +34,7 @@ export interface Wall {
 }
 
 /** Цвет неокрашенной стены. */
-export const WALL_COLOR = '#F2F1EE';
+export const WALL_COLOR = "#F2F1EE";
 
 /** Грань стены: сторона 1 — слева от a→b, -1 — справа (как у WallSide). */
 export interface Face {
@@ -45,7 +45,7 @@ export interface Face {
 /**
  * Вид проёма: окно, панорамное окно (от пола), дверь, балконная дверь (остеклённая), проём без двери.
  */
-export type OpeningKind = 'window' | 'panorama' | 'door' | 'balcony' | 'passage';
+export type OpeningKind = "window" | "panorama" | "door" | "balcony" | "passage";
 
 /** Окно, дверь или проём в стене. Положение — вдоль линии стены от её узла a. */
 export interface Opening {
@@ -59,10 +59,38 @@ export interface Opening {
   /** Низ проёма от пола: у окна — подоконник, у двери — 0. */
   sill: number;
   /** Двери: петли у края проёма со стороны узла a или b стены. */
-  hinge: 'a' | 'b';
+  hinge: "a" | "b";
   /** Двери: куда открывается — 1 в сторону нормали «влево» от a→b, -1 — в другую (как у WallSide). */
   swing: 1 | -1;
 }
+
+/**
+ * Предмет мебели: из каталога (type — ключ в furniture/catalog.ts) или своя 3D-модель (type 'model', model — id в библиотеке).
+ * Свои оси предмета: ширина — вдоль переда, глубина — от спинки к переду. При повороте 0 перед смотрит вниз по плану (+y).
+ */
+export interface Item {
+  id: Id;
+  type: string;
+  model?: Id;
+  name: string;
+  /** Центр на плане. */
+  x: number;
+  y: number;
+  /** Поворот на плане по часовой стрелке, градусы от 0 до 360. */
+  rotation: number;
+  width: number;
+  depth: number;
+  height: number;
+  /** Низ от пола: у настенного (подвесная тумба, шкаф, бра) больше нуля. */
+  elevation: number;
+  /** Сохранять пропорции: любой размер меняет все три. */
+  lock: boolean;
+  /** Основной цвет (обивка, фасады) у мебели из каталога. Нет — цвет каталога. */
+  color?: string;
+}
+
+/** Формат файла своей 3D-модели. */
+export type ModelFormat = "glb" | "gltf" | "obj";
 
 /** Замкнутый контур стен. Узлы перечислены по порядку обхода. */
 export interface Room {
@@ -82,6 +110,7 @@ export interface Project {
   walls: Record<Id, Wall>;
   rooms: Record<Id, Room>;
   openings: Record<Id, Opening>;
+  items: Record<Id, Item>;
   updatedAt: number;
 }
 
@@ -89,7 +118,7 @@ export function newId(): Id {
   return crypto.randomUUID().slice(0, 8);
 }
 
-export function emptyProject(name = 'Новый проект'): Project {
+export function emptyProject(name = "Новый проект"): Project {
   return {
     id: newId(),
     name,
@@ -99,6 +128,7 @@ export function emptyProject(name = 'Новый проект'): Project {
     walls: {},
     rooms: {},
     openings: {},
+    items: {},
     updatedAt: Date.now(),
   };
 }

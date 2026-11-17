@@ -1,8 +1,8 @@
 // Проёмы: окна, двери, проходы. Проём лежит на стене: offset — от узла a вдоль линии стены до ближнего края.
 // Здесь же куски стены вокруг проёмов для 3D: стена режется на части, без булевых операций.
-import { dot, interiorSide, norm, roomsOfWall, sub, wallLength, wallOutline } from './geometry';
-import { newId, type Id, type Opening, type OpeningKind, type Point, type Project, type Wall } from './types';
-import { round } from './units';
+import { dot, interiorSide, norm, roomsOfWall, sub, wallLength, wallOutline } from "./geometry";
+import { type Id, newId, type Opening, type OpeningKind, type Point, type Project, type Wall } from "./types";
+import { round } from "./units";
 
 /** Размеры нового проёма по виду. Окно и дверь — как в kvartira, балконная дверь выше обычной. */
 export const KIND_DEFAULTS: Record<OpeningKind, { width: number; height: number; sill: number }> = {
@@ -13,19 +13,23 @@ export const KIND_DEFAULTS: Record<OpeningKind, { width: number; height: number;
   passage: { width: 0.9, height: 2.1, sill: 0 },
 };
 export const KIND_NAMES: Record<OpeningKind, string> = {
-  window: 'Окно', panorama: 'Панорамное окно', door: 'Дверь', balcony: 'Балконная дверь', passage: 'Проём',
+  window: "Окно",
+  panorama: "Панорамное окно",
+  door: "Дверь",
+  balcony: "Балконная дверь",
+  passage: "Проём",
 };
 export const MIN_OPENING = 0.3;
 
-export const isWindow = (kind: OpeningKind) => kind === 'window' || kind === 'panorama';
+export const isWindow = (kind: OpeningKind) => kind === "window" || kind === "panorama";
 /** Проём с полотном, которое открывается: дуга на плане, петли и сторона открывания. */
-export const hasLeaf = (kind: OpeningKind) => kind === 'door' || kind === 'balcony';
+export const hasLeaf = (kind: OpeningKind) => kind === "door" || kind === "balcony";
 
 /** Самая широкая створка: шире — окно делится на створки поровну. */
 const MAX_SASH: Partial<Record<OpeningKind, number>> = { window: 0.9, panorama: 1.2 };
 
 /** Сколько створок у окна: узкое — одна, шире 0,9 м — две, шире 1,8 — три и т. д. У остальных проёмов — 1. */
-export function sashCount(o: Pick<Opening, 'kind' | 'width'>): number {
+export function sashCount(o: Pick<Opening, "kind" | "width">): number {
   const max = MAX_SASH[o.kind];
   return max ? Math.max(1, Math.ceil(o.width / max - 1e-6)) : 1;
 }
@@ -35,7 +39,7 @@ export function wallHeight(project: Project, wall: Wall): number {
 }
 
 export function openingsOfWall(project: Project, wallId: Id): Opening[] {
-  return Object.values(project.openings).filter(o => o.wall === wallId);
+  return Object.values(project.openings).filter((o) => o.wall === wallId);
 }
 
 /** Сдвиг проёма в пределах стены, с точностью до сантиметра. */
@@ -57,9 +61,14 @@ export function newOpening(project: Project, wallId: Id, kind: OpeningKind, cent
   const width = round(Math.min(d.width, length));
   const rooms = roomsOfWall(project, wall);
   const o: Opening = {
-    id: newId(), wall: wallId, kind, width, height: d.height, sill: d.sill,
+    id: newId(),
+    wall: wallId,
+    kind,
+    width,
+    height: d.height,
+    sill: d.sill,
     offset: clampOffset(center - width / 2, width, length),
-    hinge: 'a',
+    hinge: "a",
     swing: rooms.length === 1 ? interiorSide(project, rooms[0]!, wall) : 1,
   };
   fitHeight(o, wallHeight(project, wall));
@@ -91,14 +100,23 @@ export function badOpenings(project: Project): Set<Id> {
     const wall = project.walls[o.wall];
     if (!wall) continue;
     const eps = 0.0005;
-    if (o.offset < -eps || o.offset + o.width > wallLength(project, wall) + eps || o.sill + o.height > wallHeight(project, wall) + eps) bad.add(o.id);
+    if (
+      o.offset < -eps ||
+      o.offset + o.width > wallLength(project, wall) + eps ||
+      o.sill + o.height > wallHeight(project, wall) + eps
+    )
+      bad.add(o.id);
     byWall.set(o.wall, [...(byWall.get(o.wall) ?? []), o]);
   }
   for (const list of byWall.values()) {
     list.sort((p, q) => p.offset - q.offset);
     for (let i = 1; i < list.length; i++) {
-      const prev = list[i - 1]!, cur = list[i]!;
-      if (cur.offset < prev.offset + prev.width - 0.0005) { bad.add(prev.id); bad.add(cur.id); }
+      const prev = list[i - 1]!;
+      const cur = list[i]!;
+      if (cur.offset < prev.offset + prev.width - 0.0005) {
+        bad.add(prev.id);
+        bad.add(cur.id);
+      }
     }
   }
   return bad;
@@ -108,14 +126,17 @@ export function badOpenings(project: Project): Set<Id> {
 /** Стена развернулась (a↔b): проём меряется от другого конца, петли и открывание — зеркально. */
 export function flipOpening(o: Opening, length: number): void {
   o.offset = round(length - o.offset - o.width);
-  o.hinge = o.hinge === 'a' ? 'b' : 'a';
+  o.hinge = o.hinge === "a" ? "b" : "a";
   o.swing = o.swing === 1 ? -1 : 1;
 }
 
 /** Стену разрезали в точке на расстоянии at от a; часть после разреза — стена rest. Проём уходит туда, где его середина. */
 export function splitOpenings(project: Project, wallId: Id, rest: Id, at: number): void {
   for (const o of openingsOfWall(project, wallId)) {
-    if (o.offset + o.width / 2 > at) { o.wall = rest; o.offset = round(o.offset - at); }
+    if (o.offset + o.width / 2 > at) {
+      o.wall = rest;
+      o.offset = round(o.offset - at);
+    }
   }
 }
 
@@ -139,7 +160,8 @@ function clipAlong(poly: Point[], a: Point, dir: Point, lo: number, hi: number):
     const out: Point[] = [];
     pts.forEach((p, i) => {
       const q = pts[(i + 1) % pts.length]!;
-      const up = u(p), uq = u(q);
+      const up = u(p);
+      const uq = u(q);
       if (keep(up)) out.push(p);
       if (keep(up) !== keep(uq)) {
         const t = (edge - up) / (uq - up);
@@ -149,8 +171,8 @@ function clipAlong(poly: Point[], a: Point, dir: Point, lo: number, hi: number):
     return out;
   };
   let out = poly;
-  if (lo > -Infinity) out = cut(out, v => v >= lo, lo);
-  if (hi < Infinity) out = cut(out, v => v <= hi, hi);
+  if (lo > -Infinity) out = cut(out, (v) => v >= lo, lo);
+  if (hi < Infinity) out = cut(out, (v) => v <= hi, hi);
   return out;
 }
 
@@ -163,18 +185,31 @@ export function wallPieces(project: Project, wall: Wall): WallPiece[] {
   const H = wallHeight(project, wall);
   const length = wallLength(project, wall);
   const rects = openingsOfWall(project, wall.id)
-    .map(o => ({ u0: Math.max(0, o.offset), u1: Math.min(length, o.offset + o.width), h0: Math.max(0, o.sill), h1: Math.min(H, o.sill + o.height) }))
-    .filter(r => r.u1 - r.u0 > 0.001 && r.h1 - r.h0 > 0.001);
+    .map((o) => ({
+      u0: Math.max(0, o.offset),
+      u1: Math.min(length, o.offset + o.width),
+      h0: Math.max(0, o.sill),
+      h1: Math.min(H, o.sill + o.height),
+    }))
+    .filter((r) => r.u1 - r.u0 > 0.001 && r.h1 - r.h0 > 0.001);
   if (!rects.length) return [{ poly: outline, h0: 0, h1: H }];
 
-  const a = project.nodes[wall.a]!, dir = norm(sub(project.nodes[wall.b]!, a));
-  const cuts = [...new Set(rects.flatMap(r => [r.u0, r.u1]))].filter(u => u > 0.0005 && u < length - 0.0005).sort((p, q) => p - q);
+  const a = project.nodes[wall.a]!;
+  const dir = norm(sub(project.nodes[wall.b]!, a));
+  const cuts = [...new Set(rects.flatMap((r) => [r.u0, r.u1]))]
+    .filter((u) => u > 0.0005 && u < length - 0.0005)
+    .sort((p, q) => p - q);
   const bounds = [0, ...cuts, length];
   const pieces: WallPiece[] = [];
   for (let k = 0; k + 1 < bounds.length; k++) {
-    const lo = bounds[k]!, hi = bounds[k + 1]!, mid = (lo + hi) / 2;
+    const lo = bounds[k]!;
+    const hi = bounds[k + 1]!;
+    const mid = (lo + hi) / 2;
     // вырезы на этом участке по высоте, слитые
-    const holes = rects.filter(r => r.u0 <= mid && r.u1 >= mid).map(r => [r.h0, r.h1] as const).sort((p, q) => p[0] - q[0]);
+    const holes = rects
+      .filter((r) => r.u0 <= mid && r.u1 >= mid)
+      .map((r) => [r.h0, r.h1] as const)
+      .sort((p, q) => p[0] - q[0]);
     const solid: [number, number][] = [];
     let h = 0;
     for (const [h0, h1] of holes) {

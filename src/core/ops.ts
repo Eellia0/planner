@@ -1,18 +1,35 @@
 // Операции над проектом. Меняют проект на месте — в хранилище их вызывают внутри immer, поэтому это безопасно.
 import {
-  add, dist, dot, interiorSide, mul, norm, pointInPolygon, roomInnerPolygon, roomPolygon, roomsOfWall, segmentParam, signedArea, STRAIGHT, sub,
+  add,
+  dist,
+  dot,
+  interiorSide,
+  mul,
+  norm,
+  pointInPolygon,
+  roomInnerPolygon,
+  roomPolygon,
+  roomsOfWall,
+  STRAIGHT,
+  segmentParam,
+  signedArea,
+  sub,
   wallBetween,
-} from './geometry';
-import { dropOrphanOpenings, flipOpening, openingsOfWall, splitOpenings } from './openings';
-import { newId, type Face, type Id, type Point, type Project, type Room, type Wall, type WallSide } from './types';
-import { round } from './units';
+} from "./geometry";
+import { dropOrphanOpenings, flipOpening, openingsOfWall, splitOpenings } from "./openings";
+import { type Face, type Id, newId, type Point, type Project, type Room, type Wall, type WallSide } from "./types";
+import { round } from "./units";
 
 /** Узел ближе tol к точке или undefined. */
 export function nodeNear(project: Project, p: Point, tol: number): Id | undefined {
-  let best: Id | undefined, bestD = tol;
+  let best: Id | undefined;
+  let bestD = tol;
   for (const n of Object.values(project.nodes)) {
     const d = dist(n, p);
-    if (d <= bestD) { best = n.id; bestD = d; }
+    if (d <= bestD) {
+      best = n.id;
+      bestD = d;
+    }
   }
   return best;
 }
@@ -38,7 +55,7 @@ export function addRoom(project: Project, nodes: Id[], name?: string): Id {
   for (let i = 0; i < nodes.length; i++) {
     const wall = wallBetween(project, nodes[i]!, nodes[(i + 1) % nodes.length]!);
     // общую стену с другой комнатой не трогаем: её толщина уже выбрана для соседа
-    if (wall && roomsOfWall(project, wall).length === 1) wall.side = (-interiorSide(project, room, wall)) as WallSide;
+    if (wall && roomsOfWall(project, wall).length === 1) wall.side = -interiorSide(project, room, wall) as WallSide;
   }
   return room.id;
 }
@@ -53,7 +70,7 @@ function newRoom(project: Project, nodes: Id[], name?: string): Room {
 
 /** Удалить узлы, на которые не опирается ни одна стена. */
 export function dropLooseNodes(project: Project): void {
-  const used = new Set(Object.values(project.walls).flatMap(w => [w.a, w.b]));
+  const used = new Set(Object.values(project.walls).flatMap((w) => [w.a, w.b]));
   for (const id of Object.keys(project.nodes)) if (!used.has(id)) delete project.nodes[id];
 }
 
@@ -61,15 +78,26 @@ export function dropLooseNodes(project: Project): void {
  * Стена, к линии которой точка ближе tol (плюс толщина стены), и ближайшая точка на этой линии.
  * У самых концов стены не ищет — там угол, к нему прилипают отдельно. Стены узла skip и стену skipWall пропускает.
  */
-export function wallNear(project: Project, p: Point, tol: number, skip?: Id, skipWall?: Id): { id: Id; p: Point } | undefined {
-  let best: { id: Id; p: Point } | undefined, bestD = Infinity;
+export function wallNear(
+  project: Project,
+  p: Point,
+  tol: number,
+  skip?: Id,
+  skipWall?: Id,
+): { id: Id; p: Point } | undefined {
+  let best: { id: Id; p: Point } | undefined;
+  let bestD = Infinity;
   for (const w of Object.values(project.walls)) {
     if (w.a === skip || w.b === skip || w.id === skipWall) continue;
-    const a = project.nodes[w.a]!, b = project.nodes[w.b]!;
+    const a = project.nodes[w.a]!;
+    const b = project.nodes[w.b]!;
     const q = add(a, mul(sub(b, a), segmentParam(a, b, p)));
     if (dist(q, a) < 0.005 || dist(q, b) < 0.005) continue;
     const d = dist(q, p);
-    if (d <= tol + w.thickness && d < bestD) { best = { id: w.id, p: q }; bestD = d; }
+    if (d <= tol + w.thickness && d < bestD) {
+      best = { id: w.id, p: q };
+      bestD = d;
+    }
   }
   return best;
 }
@@ -81,7 +109,8 @@ export function wallNear(project: Project, p: Point, tol: number, skip?: Id, ski
 export function splitWall(project: Project, wallId: Id, p: Point, nodeId?: Id): Id {
   const wall = project.walls[wallId]!;
   const id = nodeId ?? addNode(project, p);
-  const a = wall.a, b = wall.b;
+  const a = wall.a;
+  const b = wall.b;
   for (const room of roomsOfWall(project, wall)) {
     const i = room.nodes.findIndex((u, k) => {
       const v = room.nodes[(k + 1) % room.nodes.length];
@@ -112,22 +141,26 @@ function walk(room: Room, i: number, j: number): Id[] {
  * Возвращает id новой комнаты или undefined, если комната не получилась.
  */
 export function roomByPath(project: Project, path: Id[]): Id | undefined {
-  const u = path[0]!, v = path[path.length - 1]!;
+  const u = path[0]!;
+  const v = path[path.length - 1]!;
   if (path.length < 2 || u === v) return;
-  const candidates = Object.values(project.rooms).filter(r => {
-    const i = r.nodes.indexOf(u), j = r.nodes.indexOf(v), n = r.nodes.length;
+  const candidates = Object.values(project.rooms).filter((r) => {
+    const i = r.nodes.indexOf(u);
+    const j = r.nodes.indexOf(v);
+    const n = r.nodes.length;
     // цепочка из одной стены вдоль контура — ничего не замыкает
     return i >= 0 && j >= 0 && !(path.length === 2 && ((i + 1) % n === j || (j + 1) % n === i));
   });
   const firstStep = mul(add(project.nodes[path[0]!]!, project.nodes[path[1]!]!), 0.5);
-  const inner = candidates.find(r => pointInPolygon(firstStep, roomPolygon(project, r)));
+  const inner = candidates.find((r) => pointInPolygon(firstStep, roomPolygon(project, r)));
   const room = inner ?? candidates[0];
   if (!room) return;
 
-  const i = room.nodes.indexOf(u), j = room.nodes.indexOf(v);
+  const i = room.nodes.indexOf(u);
+  const j = room.nodes.indexOf(v);
   const one = [...path, ...walk(room, j, i).slice(1, -1)];
   const two = [...[...path].reverse(), ...walk(room, i, j).slice(1, -1)];
-  const area = (ids: Id[]) => Math.abs(signedArea(ids.map(id => project.nodes[id]!)));
+  const area = (ids: Id[]) => Math.abs(signedArea(ids.map((id) => project.nodes[id]!)));
   if (area(one) < 1e-6 || area(two) < 1e-6) return;
 
   if (inner) {
@@ -147,16 +180,17 @@ export function roomByPath(project: Project, path: Id[]): Id | undefined {
  */
 export function setWallLength(project: Project, wall: Wall, length: number, fixed: Id = wall.a): void {
   const movingId = fixed === wall.a ? wall.b : wall.a;
-  const from = project.nodes[fixed]!, moving = project.nodes[movingId]!;
+  const from = project.nodes[fixed]!;
+  const moving = project.nodes[movingId]!;
   const dir = norm(sub(moving, from));
   if (length <= 0 || (dir.x === 0 && dir.y === 0)) return;
   const delta = sub(add(from, mul(dir, length)), moving);
 
   // дальние концы соседних стен у сдвигаемого угла, кроме идущих по прямой
   const across = Object.values(project.walls)
-    .filter(w => w.id !== wall.id && (w.a === movingId || w.b === movingId))
-    .map(w => (w.a === movingId ? w.b : w.a))
-    .filter(id => Math.abs(dot(dir, norm(sub(project.nodes[id]!, moving)))) <= STRAIGHT);
+    .filter((w) => w.id !== wall.id && (w.a === movingId || w.b === movingId))
+    .map((w) => (w.a === movingId ? w.b : w.a))
+    .filter((id) => Math.abs(dot(dir, norm(sub(project.nodes[id]!, moving)))) <= STRAIGHT);
   const moved = [movingId];
   if (across.length === 1 && across[0] !== fixed) moved.push(across[0]!);
   moveNodes(project, moved, delta);
@@ -173,17 +207,24 @@ export function moveNode(project: Project, id: Id, p: Point): void {
 export function moveNodes(project: Project, ids: Iterable<Id>, delta: Point): void {
   for (const id of new Set(ids)) {
     const n = project.nodes[id];
-    if (n) { n.x = round(n.x + delta.x); n.y = round(n.y + delta.y); }
+    if (n) {
+      n.x = round(n.x + delta.x);
+      n.y = round(n.y + delta.y);
+    }
   }
 }
 
 /** Комната, в пол которой попала точка. Если подошли несколько (одна внутри другой) — меньшая. */
 export function roomAt(project: Project, p: Point): Id | undefined {
-  let best: Id | undefined, bestArea = Infinity;
+  let best: Id | undefined;
+  let bestArea = Infinity;
   for (const r of Object.values(project.rooms)) {
     const poly = roomInnerPolygon(project, r);
     const area = Math.abs(signedArea(poly));
-    if (area < bestArea && pointInPolygon(p, poly)) { best = r.id; bestArea = area; }
+    if (area < bestArea && pointInPolygon(p, poly)) {
+      best = r.id;
+      bestArea = area;
+    }
   }
   return best;
 }
@@ -192,7 +233,7 @@ export function roomAt(project: Project, p: Point): Id | undefined {
 export function wallsOfRoom(project: Project, room: Room): Id[] {
   return room.nodes
     .map((id, i) => wallBetween(project, id, room.nodes[(i + 1) % room.nodes.length]!)?.id)
-    .filter(id => id !== undefined);
+    .filter((id) => id !== undefined);
 }
 
 /** Узлы выбранных стен. */
@@ -200,7 +241,10 @@ export function nodesOfWalls(project: Project, wallIds: Iterable<Id>): Id[] {
   const out = new Set<Id>();
   for (const id of wallIds) {
     const w = project.walls[id];
-    if (w) { out.add(w.a); out.add(w.b); }
+    if (w) {
+      out.add(w.a);
+      out.add(w.b);
+    }
   }
   return [...out];
 }
@@ -210,19 +254,31 @@ export function nodesOfWalls(project: Project, wallIds: Iterable<Id>): Id[] {
  * справа налево — все, которых рамка касается (хотя бы один конец внутри или отрезок пересекает рамку).
  */
 export function wallsInRect(project: Project, p: Point, q: Point, crossing: boolean): Id[] {
-  const x0 = Math.min(p.x, q.x), x1 = Math.max(p.x, q.x), y0 = Math.min(p.y, q.y), y1 = Math.max(p.y, q.y);
+  const x0 = Math.min(p.x, q.x);
+  const x1 = Math.max(p.x, q.x);
+  const y0 = Math.min(p.y, q.y);
+  const y1 = Math.max(p.y, q.y);
   const inside = (n: Point) => n.x >= x0 && n.x <= x1 && n.y >= y0 && n.y <= y1;
-  const corners: Point[] = [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
+  const corners: Point[] = [
+    { x: x0, y: y0 },
+    { x: x1, y: y0 },
+    { x: x1, y: y1 },
+    { x: x0, y: y1 },
+  ];
   const segCross = (a: Point, b: Point, c: Point, d: Point) => {
-    const o = (p1: Point, p2: Point, p3: Point) => Math.sign((p2.x - p1.x) * (p3.y - p1.y) - (p2.y - p1.y) * (p3.x - p1.x));
+    const o = (p1: Point, p2: Point, p3: Point) =>
+      Math.sign((p2.x - p1.x) * (p3.y - p1.y) - (p2.y - p1.y) * (p3.x - p1.x));
     return o(a, b, c) !== o(a, b, d) && o(c, d, a) !== o(c, d, b);
   };
-  return Object.values(project.walls).filter(w => {
-    const a = project.nodes[w.a]!, b = project.nodes[w.b]!;
-    if (!crossing) return inside(a) && inside(b);
-    if (inside(a) || inside(b)) return true;
-    return corners.some((c, i) => segCross(a, b, c, corners[(i + 1) % 4]!));
-  }).map(w => w.id);
+  return Object.values(project.walls)
+    .filter((w) => {
+      const a = project.nodes[w.a]!;
+      const b = project.nodes[w.b]!;
+      if (!crossing) return inside(a) && inside(b);
+      if (inside(a) || inside(b)) return true;
+      return corners.some((c, i) => segCross(a, b, c, corners[(i + 1) % 4]!));
+    })
+    .map((w) => w.id);
 }
 
 /**
@@ -245,7 +301,7 @@ export function deleteWalls(project: Project, wallIds: Id[]): void {
   dropOrphanOpenings(project);
   // склеиваем, только когда удалено всё: иначе склейка поглотит стену, которую тоже просили удалить
   for (const id of ends) {
-    const used = Object.values(project.walls).some(w => w.a === id || w.b === id);
+    const used = Object.values(project.walls).some((w) => w.a === id || w.b === id);
     if (!used) delete project.nodes[id];
     else joinStraight(project, id);
   }
@@ -259,7 +315,9 @@ export function deleteWall(project: Project, wallId: Id): void {
 function mergedNodes(A: Room, B: Room, u: Id, v: Id): Id[] | null {
   // путь по контуру от from до to в обход прямой стороны from–to
   const around = (room: Room, from: Id, to: Id): Id[] => {
-    const n = room.nodes.length, i = room.nodes.indexOf(from), j = room.nodes.indexOf(to);
+    const n = room.nodes.length;
+    const i = room.nodes.indexOf(from);
+    const j = room.nodes.indexOf(to);
     return room.nodes[(i + 1) % n] === to ? walk(room, j, i).reverse() : walk(room, i, j);
   };
   const nodes = [...around(A, v, u), ...around(B, u, v).slice(1, -1)];
@@ -268,20 +326,24 @@ function mergedNodes(A: Room, B: Room, u: Id, v: Id): Id[] | null {
 
 /** Узел посреди прямой стены из двух частей одинаковой толщины — убрать, части склеить. */
 function joinStraight(project: Project, nodeId: Id): void {
-  const at = Object.values(project.walls).filter(w => w.a === nodeId || w.b === nodeId);
+  const at = Object.values(project.walls).filter((w) => w.a === nodeId || w.b === nodeId);
   if (at.length !== 2) return;
   const [w1, w2] = at as [Wall, Wall];
   const n = project.nodes[nodeId]!;
-  const x = w1.a === nodeId ? w1.b : w1.a, y = w2.a === nodeId ? w2.b : w2.a;
-  const p = project.nodes[x]!, q = project.nodes[y]!;
-  if (dot(norm(sub(p, n)), norm(sub(q, n))) > -STRAIGHT || w1.thickness !== w2.thickness || w1.height !== w2.height) return;
+  const x = w1.a === nodeId ? w1.b : w1.a;
+  const y = w2.a === nodeId ? w2.b : w2.a;
+  const p = project.nodes[x]!;
+  const q = project.nodes[y]!;
+  if (dot(norm(sub(p, n)), norm(sub(q, n))) > -STRAIGHT || w1.thickness !== w2.thickness || w1.height !== w2.height)
+    return;
   // стороны толщины в направлении x → n → y: у стены, нарисованной навстречу, сторона меняет знак
   const s1 = w1.b === nodeId ? w1.side : -w1.side;
   const s2 = w2.a === nodeId ? w2.side : -w2.side;
   if (s1 !== s2) return;
   if (w1.a === nodeId && (w1.paintLeft || w1.paintRight)) [w1.paintLeft, w1.paintRight] = [w1.paintRight, w1.paintLeft]; // стена развернулась — грани меняются местами
   // проёмы обеих частей — на склеенную стену x → y, мерить от x
-  const len1 = dist(p, n), len2 = dist(n, q);
+  const len1 = dist(p, n);
+  const len2 = dist(n, q);
   for (const o of openingsOfWall(project, w1.id)) if (w1.a === nodeId) flipOpening(o, len1);
   for (const o of openingsOfWall(project, w2.id)) {
     if (w2.b === nodeId) flipOpening(o, len2);
@@ -293,7 +355,7 @@ function joinStraight(project: Project, nodeId: Id): void {
   w1.side = s1 as WallSide;
   delete project.walls[w2.id];
   delete project.nodes[nodeId];
-  for (const room of Object.values(project.rooms)) room.nodes = room.nodes.filter(id => id !== nodeId);
+  for (const room of Object.values(project.rooms)) room.nodes = room.nodes.filter((id) => id !== nodeId);
 }
 
 // ---------- цвет граней ----------
@@ -307,7 +369,7 @@ export function paintFaces(project: Project, faces: Face[], color: string | null
   for (const f of faces) {
     const w = project.walls[f.wall];
     if (!w) continue;
-    const key = f.side === 1 ? 'paintLeft' : 'paintRight';
+    const key = f.side === 1 ? "paintLeft" : "paintRight";
     if (color) w[key] = color;
     else delete w[key];
   }
@@ -315,12 +377,12 @@ export function paintFaces(project: Project, faces: Face[], color: string | null
 
 /** Грани стен комнаты, обращённые внутрь неё. */
 export function roomFaces(project: Project, room: Room): Face[] {
-  return wallsOfRoom(project, room).map(id => ({ wall: id, side: interiorSide(project, room, project.walls[id]!) }));
+  return wallsOfRoom(project, room).map((id) => ({ wall: id, side: interiorSide(project, room, project.walls[id]!) }));
 }
 
 /** Грани стен, обращённые в какую-нибудь комнату (у перегородки — обе). */
 export function insideFaces(project: Project, walls: Wall[]): Face[] {
-  return walls.flatMap(w => roomsOfWall(project, w).map(r => ({ wall: w.id, side: interiorSide(project, r, w) })));
+  return walls.flatMap((w) => roomsOfWall(project, w).map((r) => ({ wall: w.id, side: interiorSide(project, r, w) })));
 }
 
 /** Все цвета граней в проекте, без повторов. */

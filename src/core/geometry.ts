@@ -1,4 +1,4 @@
-import type { Id, Point, Project, Room, Wall } from './types';
+import type { Id, Point, Project, Room, Wall } from "./types";
 
 // ---------- векторы ----------
 export const add = (p: Point, q: Point): Point => ({ x: p.x + q.x, y: p.y + q.y });
@@ -34,8 +34,9 @@ export function segmentParam(a: Point, b: Point, p: Point): number {
 export function pointInPolygon(p: Point, poly: Point[]): boolean {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const a = poly[i]!, b = poly[j]!;
-    if ((a.y > p.y) !== (b.y > p.y) && p.x < a.x + ((p.y - a.y) * (b.x - a.x)) / (b.y - a.y)) inside = !inside;
+    const a = poly[i]!;
+    const b = poly[j]!;
+    if (a.y > p.y !== b.y > p.y && p.x < a.x + ((p.y - a.y) * (b.x - a.x)) / (b.y - a.y)) inside = !inside;
   }
   return inside;
 }
@@ -58,11 +59,13 @@ export function wallOffsets(wall: Wall): [number, number] {
  * и глаз не стоит вплотную к стене. Прямая, а не отрезок: так прозрачнеет весь фасад, а не кусок напротив цели.
  */
 export function wallBlocksView(project: Project, wall: Wall, eye: Point, target: Point): boolean {
-  const a = project.nodes[wall.a]!, b = project.nodes[wall.b]!;
+  const a = project.nodes[wall.a]!;
+  const b = project.nodes[wall.b]!;
   const n = perp(norm(sub(b, a)));
   const [r, l] = wallOffsets(wall);
   const mid = add(a, mul(n, (r + l) / 2));
-  const se = dot(sub(eye, mid), n), st = dot(sub(target, mid), n);
+  const se = dot(sub(eye, mid), n);
+  const st = dot(sub(target, mid), n);
   return se * st < 0 && Math.abs(se) > wall.thickness / 2 + 0.05;
 }
 
@@ -76,7 +79,8 @@ interface WallEnd {
 }
 
 function endAt(project: Project, wall: Wall, nodeId: Id): WallEnd {
-  const a = project.nodes[wall.a]!, b = project.nodes[wall.b]!;
+  const a = project.nodes[wall.a]!;
+  const b = project.nodes[wall.b]!;
   const [o1, o2] = wallOffsets(wall);
   if (wall.a === nodeId) return { wall, dir: norm(sub(b, a)), right: o1, left: o2 };
   // у узла b направление обратное, значит и «лево» с «право» меняются местами
@@ -95,16 +99,16 @@ export const STRAIGHT = 0.9999;
 function cornersAt(project: Project, wall: Wall, nodeId: Id): { right: Point; left: Point } {
   const node = project.nodes[nodeId]!;
   const ends = Object.values(project.walls)
-    .filter(w => w.a === nodeId || w.b === nodeId)
-    .map(w => endAt(project, w, nodeId))
+    .filter((w) => w.a === nodeId || w.b === nodeId)
+    .map((w) => endAt(project, w, nodeId))
     .sort((p, q) => Math.atan2(p.dir.y, p.dir.x) - Math.atan2(q.dir.y, q.dir.x));
-  const i = ends.findIndex(e => e.wall.id === wall.id);
+  const i = ends.findIndex((e) => e.wall.id === wall.id);
   const me = ends[i]!;
   const n = perp(me.dir);
   const plain = { right: add(node, mul(n, me.right)), left: add(node, mul(n, me.left)) };
   if (ends.length < 2) return plain;
   // стена идёт сквозь узел (Т-стык или просто разрезанная стена) — режем прямо, примыкающая упрётся в её грань
-  if (ends.some(e => e !== me && dot(e.dir, me.dir) < -STRAIGHT)) return plain;
+  if (ends.some((e) => e !== me && dot(e.dir, me.dir) < -STRAIGHT)) return plain;
 
   const next = ends[(i + 1) % ends.length]!;
   const prev = ends[(i - 1 + ends.length) % ends.length]!;
@@ -131,7 +135,7 @@ export function wallOutline(project: Project, wall: Wall): Point[] {
 
 // ---------- комнаты ----------
 export function roomPolygon(project: Project, room: Room): Point[] {
-  return room.nodes.map(id => project.nodes[id]!);
+  return room.nodes.map((id) => project.nodes[id]!);
 }
 
 /**
@@ -150,7 +154,7 @@ export function roomInnerPolygon(project: Project, room: Room): Point[] {
     if (wall) {
       const [r, l] = wallOffsets(wall);
       const forward = wall.a === room.nodes[i]; // стена нарисована по обходу комнаты
-      offset = ccw ? (forward ? l : -r) : (forward ? r : -l);
+      offset = ccw ? (forward ? l : -r) : forward ? r : -l;
     }
     return { p: add(p, mul(perp(d), offset)), d };
   });
@@ -164,7 +168,8 @@ export function roomInnerPolygon(project: Project, room: Room): Point[] {
 export function signedArea(poly: Point[]): number {
   let s = 0;
   for (let i = 0; i < poly.length; i++) {
-    const p = poly[i]!, q = poly[(i + 1) % poly.length]!;
+    const p = poly[i]!;
+    const q = poly[(i + 1) % poly.length]!;
     s += p.x * q.y - q.x * p.y;
   }
   return s / 2;
@@ -181,9 +186,11 @@ export function centroid(poly: Point[]): Point {
     const s = poly.reduce((acc, p) => add(acc, p), { x: 0, y: 0 });
     return mul(s, 1 / Math.max(poly.length, 1));
   }
-  let cx = 0, cy = 0;
+  let cx = 0;
+  let cy = 0;
   for (let i = 0; i < poly.length; i++) {
-    const p = poly[i]!, q = poly[(i + 1) % poly.length]!;
+    const p = poly[i]!;
+    const q = poly[(i + 1) % poly.length]!;
     const f = p.x * q.y - q.x * p.y;
     cx += (p.x + q.x) * f;
     cy += (p.y + q.y) * f;
@@ -193,12 +200,12 @@ export function centroid(poly: Point[]): Point {
 
 /** Найти стену между двумя узлами, в любом направлении. */
 export function wallBetween(project: Project, u: Id, v: Id): Wall | undefined {
-  return Object.values(project.walls).find(w => (w.a === u && w.b === v) || (w.a === v && w.b === u));
+  return Object.values(project.walls).find((w) => (w.a === u && w.b === v) || (w.a === v && w.b === u));
 }
 
 /** Комнаты, которым принадлежит стена. */
 export function roomsOfWall(project: Project, wall: Wall): Room[] {
-  return Object.values(project.rooms).filter(r =>
+  return Object.values(project.rooms).filter((r) =>
     r.nodes.some((id, i) => {
       const next = r.nodes[(i + 1) % r.nodes.length]!;
       return (id === wall.a && next === wall.b) || (id === wall.b && next === wall.a);
@@ -216,10 +223,13 @@ export function interiorSide(project: Project, room: Room, wall: Wall): 1 | -1 {
 
 export function bounds(points: Point[]): { min: Point; max: Point } | null {
   if (!points.length) return null;
-  const min = { x: Infinity, y: Infinity }, max = { x: -Infinity, y: -Infinity };
+  const min = { x: Infinity, y: Infinity };
+  const max = { x: -Infinity, y: -Infinity };
   for (const p of points) {
-    min.x = Math.min(min.x, p.x); min.y = Math.min(min.y, p.y);
-    max.x = Math.max(max.x, p.x); max.y = Math.max(max.y, p.y);
+    min.x = Math.min(min.x, p.x);
+    min.y = Math.min(min.y, p.y);
+    max.x = Math.max(max.x, p.x);
+    max.y = Math.max(max.y, p.y);
   }
   return { min, max };
 }

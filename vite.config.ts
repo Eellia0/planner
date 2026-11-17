@@ -1,12 +1,13 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react()],
   // относительные пути: собранное приложение можно открыть из любой папки
-  base: './',
+  base: "./",
   test: {
-    include: ['src/**/*.test.ts'],
+    include: ["src/**/*.test.ts"],
   },
 });

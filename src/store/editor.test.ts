@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { emptyProject } from '../core/types';
-import { useEditor } from './editor';
+import { beforeEach, describe, expect, it } from "vitest";
+import { emptyProject } from "../core/types";
+import { useEditor } from "./editor";
 
 const count = () => {
   const p = useEditor.getState().project;
@@ -8,12 +8,12 @@ const count = () => {
 };
 
 beforeEach(() => {
-  useEditor.setState({ project: emptyProject(), chain: [], start: null, tool: 'wall' });
+  useEditor.setState({ project: emptyProject(), chain: [], start: null, tool: "wall" });
   useEditor.temporal.getState().clear();
 });
 
-describe('начало цепочки', () => {
-  it('брошенная первая точка не остаётся в проекте и не попадает в историю', () => {
+describe("начало цепочки", () => {
+  it("брошенная первая точка не остаётся в проекте и не попадает в историю", () => {
     const s = useEditor.getState();
     s.placePoint({ x: 1, y: 1 });
     expect(count()).toEqual({ nodes: 0, walls: 0 });
@@ -22,7 +22,7 @@ describe('начало цепочки', () => {
     expect(useEditor.temporal.getState().pastStates).toHaveLength(0);
   });
 
-  it('первая стена ставит обе точки одним шагом отмены', () => {
+  it("первая стена ставит обе точки одним шагом отмены", () => {
     const s = useEditor.getState();
     s.placePoint({ x: 0, y: 0 });
     s.placePoint({ x: 3, y: 0 });
@@ -30,7 +30,7 @@ describe('начало цепочки', () => {
     expect(useEditor.temporal.getState().pastStates).toHaveLength(1);
   });
 
-  it('повторный клик в начало ничего не ставит', () => {
+  it("повторный клик в начало ничего не ставит", () => {
     const s = useEditor.getState();
     s.placePoint({ x: 0, y: 0 });
     s.placePoint({ x: 0, y: 0 });
@@ -38,7 +38,7 @@ describe('начало цепочки', () => {
     expect(useEditor.getState().start).not.toBeNull();
   });
 
-  it('начало на стене: стена режется только когда появилась новая стена', () => {
+  it("начало на стене: стена режется только когда появилась новая стена", () => {
     const s = useEditor.getState();
     s.placePoint({ x: 0, y: 0 });
     s.placePoint({ x: 4, y: 0 });

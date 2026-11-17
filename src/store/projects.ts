@@ -1,20 +1,23 @@
 // Проекты в IndexedDB (Dexie): список, открытие, автосохранение, файл проекта.
 // Открыт всегда ровно один проект — тот, что лежит в хранилище редактора.
-import { Dexie, type EntityTable } from 'dexie';
-import { create } from 'zustand';
-import { dropLooseNodes } from '../core/ops';
-import { fileName, projectFromFile, projectToFile } from '../core/projectFile';
-import { emptyProject, type Id, type Project } from '../core/types';
-import { openProject, useEditor } from './editor';
+import { Dexie, type EntityTable } from "dexie";
+import { create } from "zustand";
+import { dropLooseNodes } from "../core/ops";
+import { fileName, projectFromFile, projectToFile } from "../core/projectFile";
+import { emptyProject, type Id, type Project } from "../core/types";
+import { openProject, useEditor } from "./editor";
 
-const db = new Dexie('planner') as Dexie & { projects: EntityTable<Project, 'id'> };
-db.version(1).stores({ projects: 'id, updatedAt' });
+const db = new Dexie("planner") as Dexie & { projects: EntityTable<Project, "id"> };
+db.version(1).stores({ projects: "id, updatedAt" });
 
-const CURRENT_KEY = 'planner.current'; // какой проект открыт
-const OLD_KEY = 'planner.project'; // где лежал единственный проект до списка проектов
+const CURRENT_KEY = "planner.current"; // какой проект открыт
+const OLD_KEY = "planner.project"; // где лежал единственный проект до списка проектов
 
 /** Состояние сохранения для шапки. */
-export const useSaveStatus = create<{ state: 'saved' | 'pending' | 'error'; error: string }>(() => ({ state: 'saved', error: '' }));
+export const useSaveStatus = create<{ state: "saved" | "pending" | "error"; error: string }>(() => ({
+  state: "saved",
+  error: "",
+}));
 
 let pending: Project | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -27,14 +30,18 @@ export async function flush() {
   pending = null;
   try {
     await db.projects.put({ ...p, updatedAt: Date.now() });
-    if (!pending) useSaveStatus.setState({ state: 'saved', error: '' });
+    if (!pending) useSaveStatus.setState({ state: "saved", error: "" });
   } catch (e) {
-    useSaveStatus.setState({ state: 'error', error: e instanceof Error ? e.message : String(e) });
+    useSaveStatus.setState({ state: "error", error: e instanceof Error ? e.message : String(e) });
   }
 }
 
 function remember(id: Id) {
-  try { localStorage.setItem(CURRENT_KEY, id); } catch { /* не страшно: откроется последний изменённый */ }
+  try {
+    localStorage.setItem(CURRENT_KEY, id);
+  } catch {
+    /* не страшно: откроется последний изменённый */
+  }
 }
 
 function show(p: Project) {
@@ -55,30 +62,39 @@ export async function initProjects() {
       if (!(await db.projects.get(p.id))) await db.projects.put(p);
       current = p.id;
     }
-  } catch { /* localStorage недоступен или испорчен — просто откроем последний */ }
+  } catch {
+    /* localStorage недоступен или испорчен — просто откроем последний */
+  }
 
   let p = current ? await db.projects.get(current) : undefined;
-  p ??= await db.projects.orderBy('updatedAt').last();
-  if (!p) { p = emptyProject(); await db.projects.put(p); }
+  p ??= await db.projects.orderBy("updatedAt").last();
+  if (!p) {
+    p = emptyProject();
+    await db.projects.put(p);
+  }
   show(p);
 
   useEditor.subscribe((s, prev) => {
     // смена проекта — не правка: не трогаем его дату
     if (s.project === prev.project || s.project.id !== prev.project.id) return;
     pending = s.project;
-    useSaveStatus.setState({ state: 'pending' });
+    useSaveStatus.setState({ state: "pending" });
     clearTimeout(timer);
     timer = setTimeout(flush, 400);
   });
   // при закрытии вкладки не ждём таймера
-  window.addEventListener('pagehide', () => { void flush(); });
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') void flush(); });
+  window.addEventListener("pagehide", () => {
+    void flush();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") void flush();
+  });
 }
 
 /** Все проекты, последний изменённый сверху. */
 export async function listProjects(): Promise<Project[]> {
   await flush();
-  return db.projects.orderBy('updatedAt').reverse().toArray();
+  return db.projects.orderBy("updatedAt").reverse().toArray();
 }
 
 export async function switchProject(id: Id) {
@@ -99,7 +115,7 @@ export async function deleteProject(id: Id) {
   await flush();
   await db.projects.delete(id);
   if (useEditor.getState().project.id !== id) return;
-  const next = await db.projects.orderBy('updatedAt').last();
+  const next = await db.projects.orderBy("updatedAt").last();
   if (next) show(next);
   else await createProject();
 }
@@ -113,28 +129,33 @@ export async function importProject(file: File) {
 }
 
 // окно «Сохранить как» есть в Edge и Chrome; в остальных браузерах файл уходит в «Загрузки»
-type SavePicker = (o: { suggestedName: string; types: { description: string; accept: Record<string, string[]> }[] }) =>
-  Promise<{ createWritable: () => Promise<{ write: (data: Blob) => Promise<void>; close: () => Promise<void> }> }>;
+type SavePicker = (o: {
+  suggestedName: string;
+  types: { description: string; accept: Record<string, string[]> }[];
+}) => Promise<{ createWritable: () => Promise<{ write: (data: Blob) => Promise<void>; close: () => Promise<void> }> }>;
 
 /** Сохранить открытый проект в файл. false — пользователь закрыл окно выбора файла. */
 export async function exportProject(): Promise<boolean> {
   await flush();
   const project = useEditor.getState().project;
-  const blob = new Blob([projectToFile(project)], { type: 'application/json' });
+  const blob = new Blob([projectToFile(project)], { type: "application/json" });
   const picker = (window as unknown as { showSaveFilePicker?: SavePicker }).showSaveFilePicker;
   if (picker) {
     try {
-      const handle = await picker({ suggestedName: fileName(project), types: [{ description: 'Проект планировщика', accept: { 'application/json': ['.json'] } }] });
+      const handle = await picker({
+        suggestedName: fileName(project),
+        types: [{ description: "Проект планировщика", accept: { "application/json": [".json"] } }],
+      });
       const out = await handle.createWritable();
       await out.write(blob);
       await out.close();
       return true;
     } catch (e) {
-      if (e instanceof DOMException && e.name === 'AbortError') return false;
+      if (e instanceof DOMException && e.name === "AbortError") return false;
       throw e;
     }
   }
-  const a = document.createElement('a');
+  const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = fileName(project);
   a.click();
