@@ -2,20 +2,29 @@ import { temporal } from "zundo";
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { dist, wallLength } from "../core/geometry";
+import { type ItemDraft, itemAxes, MIN_ITEM, normalizeRotation, resizeItem } from "../core/items";
 import { addOpening, clampOffset, setOpeningKind } from "../core/openings";
 import * as ops from "../core/ops";
 import {
   emptyProject,
   type Face,
   type Id,
+  type Item,
+  newId,
   type Opening,
   type OpeningKind,
   type Point,
   type Project,
   type WallSide,
 } from "../core/types";
+import { round } from "../core/units";
 
-export type Tool = "select" | "wall" | "window" | "door";
+export type Tool = "select" | "wall" | "window" | "door" | "furniture";
+/** Поля предмета, которые меняются из свойств и мышью. */
+export type ItemPatch = Partial<
+  Pick<Item, "name" | "x" | "y" | "rotation" | "width" | "depth" | "height" | "elevation" | "lock" | "color">
+>;
+const COPY_SHIFT = 0.2; // копия встаёт со сдвигом, чтобы не лечь ровно на оригинал
 /** Куда встанет первая точка: в угол, на стену или в свободное место. */
 export interface ChainStart {
   p: Point;
@@ -34,6 +43,12 @@ interface EditorState {
   room: Id | null;
   /** Выбранный проём (тогда ни стены, ни комната не выбраны). */
   opening: Id | null;
+  /** Выбранный предмет мебели (тогда больше ничего не выбрано). */
+  item: Id | null;
+  /** Что ставит инструмент «Мебель»; null — открыт каталог. */
+  placing: ItemDraft | null;
+  /** Скопированный предмет (Ctrl+C), в историю не попадает. */
+  clipboard: Item | null;
   /** Угол выбранной стены, который стоит на месте при новой длине: ближний к месту клика. */
   anchor: Id | null;
   /** Узлы рисуемой сейчас цепочки стен. */
@@ -46,6 +61,22 @@ interface EditorState {
   setAnchor: (id: Id | null) => void;
   selectRoom: (id: Id | null) => void;
   selectOpening: (id: Id | null) => void;
+  selectItem: (id: Id | null) => void;
+  /** Взять предмет из каталога: дальше клик на плане ставит его. null — вернуться к каталогу. */
+  startPlacing: (draft: ItemDraft | null) => void;
+  rotatePlacing: (by: number) => void;
+  /** Поставить предмет и выбрать его. keep — не выходить из постановки (ставить ещё такой же). */
+  addItem: (it: Item, keep?: boolean) => void;
+  /** Поменять поля предмета одним шагом отмены; color: undefined — цвет каталога. */
+  updateItem: (id: Id, patch: ItemPatch) => void;
+  /** Новый размер (с пропорциями, если они сохраняются); спинка стоит на месте. */
+  resizeItem: (id: Id, size: Partial<Pick<Item, "width" | "depth" | "height">>) => void;
+  rotateItem: (id: Id, by: number) => void;
+  moveItem: (id: Id, delta: Point) => void;
+  deleteItem: (id: Id) => void;
+  duplicateItem: (id: Id) => void;
+  copyItem: (id: Id) => void;
+  pasteItem: () => void;
   /** Поставить окно или дверь на стену серединой в center (м от узла a) и выбрать его. */
   addOpening: (wall: Id, kind: OpeningKind, center: number) => void;
   /** Поменять поля проёма одним шагом отмены. Сдвиг и ширина не выходят за стену. */
@@ -89,6 +120,9 @@ export const useEditor = create<EditorState>()(
       selection: [],
       room: null,
       opening: null,
+      item: null,
+      placing: null,
+      clipboard: null,
       anchor: null,
       chain: [],
       start: null,
@@ -98,10 +132,12 @@ export const useEditor = create<EditorState>()(
           s.tool = tool;
           s.chain = [];
           s.start = null;
+          s.placing = null;
           if (tool === "wall") {
             s.selection = [];
             s.room = null;
             s.opening = null;
+            s.item = null;
           }
         }),
       setSelection: (ids) =>
@@ -109,6 +145,7 @@ export const useEditor = create<EditorState>()(
           s.selection = ids;
           s.room = null;
           s.opening = null;
+          s.item = null;
         }),
       setAnchor: (id) =>
         set((s) => {
@@ -119,12 +156,108 @@ export const useEditor = create<EditorState>()(
           s.room = id;
           s.selection = [];
           s.opening = null;
+          s.item = null;
         }),
       selectOpening: (id) =>
         set((s) => {
           s.opening = id;
           s.selection = [];
           s.room = null;
+          s.item = null;
+        }),
+      selectItem: (id) =>
+        set((s) => {
+          s.item = id;
+          s.selection = [];
+          s.room = null;
+          s.opening = null;
+        }),
+      startPlacing: (draft) =>
+        set((s) => {
+          s.tool = "furniture";
+          s.placing = draft;
+          s.chain = [];
+          s.start = null;
+        }),
+      rotatePlacing: (by) =>
+        set((s) => {
+          if (s.placing) s.placing.rotation = normalizeRotation(s.placing.rotation + by);
+        }),
+      addItem: (it, keep) =>
+        set((s) => {
+          const id = newId();
+          s.project.items[id] = { ...it, id };
+          s.item = id;
+          s.selection = [];
+          s.room = null;
+          s.opening = null;
+          if (!keep) {
+            s.tool = "select";
+            s.placing = null;
+          }
+        }),
+      updateItem: (id, patch) =>
+        set((s) => {
+          s.preview = null;
+          const it = s.project.items[id];
+          if (!it) return;
+          const name = it.name;
+          Object.assign(it, patch);
+          if ("color" in patch && patch.color === undefined) delete it.color;
+          it.name = it.name.trim() || name;
+          it.rotation = normalizeRotation(it.rotation);
+          it.width = Math.max(MIN_ITEM, round(it.width));
+          it.depth = Math.max(MIN_ITEM, round(it.depth));
+          it.height = Math.max(MIN_ITEM, round(it.height));
+          it.elevation = Math.max(0, round(it.elevation));
+        }),
+      resizeItem: (id, size) =>
+        set((s) => {
+          const it = s.project.items[id];
+          if (it) resizeItem(it, size);
+        }),
+      rotateItem: (id, by) =>
+        set((s) => {
+          const it = s.project.items[id];
+          if (it) it.rotation = normalizeRotation(it.rotation + by);
+        }),
+      moveItem: (id, delta) =>
+        set((s) => {
+          const it = s.project.items[id];
+          if (it) {
+            it.x = round(it.x + delta.x);
+            it.y = round(it.y + delta.y);
+          }
+        }),
+      deleteItem: (id) =>
+        set((s) => {
+          delete s.project.items[id];
+          if (s.item === id) s.item = null;
+        }),
+      duplicateItem: (id) =>
+        set((s) => {
+          const it = s.project.items[id];
+          if (!it) return;
+          const copy = shifted(it);
+          s.project.items[copy.id] = copy;
+          s.item = copy.id;
+        }),
+      copyItem: (id) =>
+        set((s) => {
+          const it = s.project.items[id];
+          if (it) s.clipboard = { ...it };
+        }),
+      pasteItem: () =>
+        set((s) => {
+          if (!s.clipboard) return;
+          // каждая следующая вставка — ещё на шаг дальше
+          const copy = shifted(s.clipboard);
+          s.project.items[copy.id] = copy;
+          s.clipboard = { ...copy };
+          s.item = copy.id;
+          s.selection = [];
+          s.room = null;
+          s.opening = null;
         }),
       addOpening: (wall, kind, center) =>
         set((s) => {
@@ -132,6 +265,7 @@ export const useEditor = create<EditorState>()(
           s.opening = addOpening(s.project, wall, kind, center);
           s.selection = [];
           s.room = null;
+          s.item = null;
         }),
       updateOpening: (id, patch) =>
         set((s) => {
@@ -278,6 +412,12 @@ export const useEditor = create<EditorState>()(
   ),
 );
 
+/** Копия предмета с новым id, сдвинутая вбок и вперёд. */
+function shifted(it: Item): Item {
+  const { u, v } = itemAxes(it);
+  return { ...it, id: newId(), x: round(it.x + (u.x + v.x) * COPY_SHIFT), y: round(it.y + (u.y + v.y) * COPY_SHIFT) };
+}
+
 // после отмены или повтора рисуемая цепочка и выбор могут ссылаться на то, чего уже нет
 function afterHistory() {
   const s = useEditor.getState();
@@ -288,6 +428,7 @@ function afterHistory() {
     selection: s.selection.filter((id) => s.project.walls[id]),
     room: s.room && s.project.rooms[s.room] ? s.room : null,
     opening: s.opening && s.project.openings[s.opening] ? s.opening : null,
+    item: s.item && s.project.items[s.item] ? s.item : null,
   });
 }
 export const undo = () => {
@@ -302,6 +443,7 @@ export const redo = () => {
 /** Открыть другой проект: выбор и рисование сбрасываются, история отмены начинается заново. */
 export function openProject(project: Project) {
   project.openings ??= {}; // проекты, сохранённые до проёмов
+  project.items ??= {}; // и до мебели
   useEditor.setState({
     project,
     preview: null,
@@ -310,6 +452,8 @@ export function openProject(project: Project) {
     selection: [],
     room: null,
     opening: null,
+    item: null,
+    placing: null,
     anchor: null,
   });
   useEditor.temporal.getState().clear();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as ops from "./ops";
-import { fileName, projectFromFile, projectToFile } from "./projectFile";
+import { fileName, fromBase64, parseProjectFile, projectFromFile, projectToFile, toBase64 } from "./projectFile";
 import { emptyProject } from "./types";
 
 function sample() {
@@ -68,5 +68,107 @@ describe("файл проекта: цвет", () => {
     const back = projectFromFile(projectToFile(p));
     expect(back.walls[w1!.id]!.paintLeft).toBe("#A2AC96");
     expect(back.walls[w2!.id]!.paintRight).toBeUndefined();
+  });
+});
+
+describe("файл проекта: мебель и свои модели", () => {
+  it("мебель и модели сохраняются и читаются, данные модели — те же байты", () => {
+    const p = sample();
+    p.items.a = {
+      id: "a",
+      type: "bed",
+      name: "Кровать",
+      x: 1,
+      y: 1.06,
+      rotation: 0,
+      width: 1.72,
+      depth: 2.12,
+      height: 1.18,
+      elevation: 0,
+      lock: false,
+      color: "#B9A58A",
+    };
+    p.items.m = {
+      id: "m",
+      type: "model",
+      model: "mdl1",
+      name: "Кресло",
+      x: 2,
+      y: 1,
+      rotation: 90,
+      width: 0.8,
+      depth: 0.8,
+      height: 0.9,
+      elevation: 0,
+      lock: true,
+    };
+    const bytes = new Uint8Array([0, 1, 2, 250, 255, 128]);
+    const model = {
+      id: "mdl1",
+      name: "Кресло",
+      format: "glb" as const,
+      unit: 100,
+      size: { w: 0.8, d: 0.8, h: 0.9 },
+      data: toBase64(bytes.buffer),
+    };
+    const { project, models } = parseProjectFile(projectToFile(p, [model]));
+    expect(project.items).toEqual(p.items);
+    expect(models).toEqual([model]);
+    expect([...new Uint8Array(fromBase64(models[0]!.data))]).toEqual([...bytes]);
+  });
+
+  it("предмет с плохими размерами и модель без данных пропускаются, старый файл без мебели открывается", () => {
+    const p = sample();
+    p.items.a = {
+      id: "a",
+      type: "bed",
+      name: "Кровать",
+      x: 1,
+      y: 1,
+      rotation: -90,
+      width: 0,
+      depth: 2,
+      height: 1,
+      elevation: -1,
+      lock: false,
+    };
+    p.items.b = {
+      id: "b",
+      type: "chair",
+      name: "",
+      x: 1,
+      y: 1,
+      rotation: -90,
+      width: 0.4,
+      depth: 0.4,
+      height: 0.9,
+      elevation: -1,
+      lock: false,
+      color: "red",
+    };
+    p.items.c = {
+      id: "c",
+      type: "model",
+      name: "Без ссылки",
+      x: 1,
+      y: 1,
+      rotation: 0,
+      width: 1,
+      depth: 1,
+      height: 1,
+      elevation: 0,
+      lock: true,
+    };
+    const text = projectToFile(p, [
+      { id: "x", name: "x", format: "glb", unit: 1, size: { w: 1, d: 1, h: 1 }, data: 5 as unknown as string },
+    ]);
+    const { project, models } = parseProjectFile(text);
+    expect(Object.keys(project.items)).toEqual(["b"]);
+    expect(project.items.b).toMatchObject({ name: "Предмет", rotation: 270, elevation: 0 });
+    expect(project.items.b!.color).toBeUndefined();
+    expect(models).toEqual([]);
+    const old = JSON.parse(projectToFile(sample()));
+    delete old.project.items;
+    expect(projectFromFile(JSON.stringify(old)).items).toEqual({});
   });
 });

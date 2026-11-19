@@ -1,16 +1,56 @@
 // Файл проекта: JSON с меткой формата и версией. Чтение проверяет всё, что потом используется,
 // чтобы испорченный или чужой файл не ломал приложение, а давал понятную ошибку.
-
+import { normalizeRotation } from "./items";
 import { KIND_DEFAULTS } from "./openings";
 import { dropLooseNodes } from "./ops";
-import { emptyProject, newId, type Opening, type OpeningKind, type Project, type Room, type Wall } from "./types";
+import {
+  emptyProject,
+  type Id,
+  type Item,
+  type ModelFormat,
+  newId,
+  type Opening,
+  type OpeningKind,
+  type Project,
+  type Room,
+  type Wall,
+} from "./types";
 
 export const FILE_FORMAT = "planner";
 export const FILE_VERSION = 1;
 export const FILE_EXT = ".planner.json";
 
-export function projectToFile(project: Project): string {
-  return JSON.stringify({ format: FILE_FORMAT, version: FILE_VERSION, project }, null, 1);
+/** Своя 3D-модель внутри файла проекта: данные — в base64, остальное как в библиотеке. */
+export interface ModelFile {
+  id: Id;
+  name: string;
+  format: ModelFormat;
+  unit: number;
+  size: { w: number; d: number; h: number };
+  data: string;
+}
+
+/** Файл проекта; models — свои модели, которые в нём стоят: файл открывается и там, где их нет в библиотеке. */
+export function projectToFile(project: Project, models: ModelFile[] = []): string {
+  return JSON.stringify(
+    { format: FILE_FORMAT, version: FILE_VERSION, project, ...(models.length ? { models } : {}) },
+    null,
+    1,
+  );
+}
+
+export function toBase64(data: ArrayBuffer): string {
+  const bytes = new Uint8Array(data);
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+export function fromBase64(text: string): ArrayBuffer {
+  const s = atob(text);
+  const bytes = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
+  return bytes.buffer;
 }
 
 /** Имя файла из названия проекта: без запрещённых в Windows знаков. */
@@ -27,11 +67,16 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object
 const isColor = (v: unknown): v is string => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v);
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
+const MODEL_FORMATS: ModelFormat[] = ["glb", "gltf", "obj"];
+
+/** Проект из текста файла (без моделей) — см. parseProjectFile. */
+export const projectFromFile = (text: string): Project => parseProjectFile(text).project;
+
 /**
- * Проект из текста файла. Получает новый id: загрузка никогда не затирает проект, который уже есть в списке.
- * Ошибка — исключение с текстом для пользователя.
+ * Проект и свои модели из текста файла. Проект получает новый id: загрузка никогда не затирает проект, который уже
+ * есть в списке. Ошибка — исключение с текстом для пользователя.
  */
-export function projectFromFile(text: string): Project {
+export function parseProjectFile(text: string): { project: Project; models: ModelFile[] } {
   let data: unknown;
   try {
     data = JSON.parse(text);
@@ -108,7 +153,55 @@ export function projectFromFile(text: string): Project {
       } satisfies Opening;
     }
   }
+  // мебель — тоже необязательная; предмет с неверными размерами пропускаем, неизвестный вид оставляем (покажется ящиком)
+  if (isObj(src.items)) {
+    for (const [id, it] of Object.entries(src.items)) {
+      if (!isObj(it) || typeof it.type !== "string" || !isNum(it.x) || !isNum(it.y)) continue;
+      if (![it.width, it.depth, it.height].every((v) => isNum(v) && v > 0)) continue;
+      if (it.type === "model" && typeof it.model !== "string") continue;
+      const item: Item = {
+        id,
+        type: it.type,
+        name: typeof it.name === "string" && it.name.trim() ? it.name : "Предмет",
+        x: it.x,
+        y: it.y,
+        rotation: isNum(it.rotation) ? normalizeRotation(it.rotation) : 0,
+        width: it.width as number,
+        depth: it.depth as number,
+        height: it.height as number,
+        elevation: isNum(it.elevation) && it.elevation > 0 ? it.elevation : 0,
+        lock: it.lock === true,
+      };
+      if (typeof it.model === "string") item.model = it.model;
+      if (isColor(it.color)) item.color = it.color;
+      p.items[id] = item;
+    }
+  }
   dropLooseNodes(p);
   p.id = newId();
-  return p;
+
+  const models: ModelFile[] = [];
+  if (Array.isArray(data.models)) {
+    for (const m of data.models) {
+      if (
+        !isObj(m) ||
+        typeof m.id !== "string" ||
+        typeof m.data !== "string" ||
+        !MODEL_FORMATS.includes(m.format as ModelFormat)
+      )
+        continue;
+      const size = m.size;
+      if (!isNum(m.unit) || m.unit <= 0 || !isObj(size) || ![size.w, size.d, size.h].every((v) => isNum(v) && v > 0))
+        continue;
+      models.push({
+        id: m.id,
+        name: typeof m.name === "string" ? m.name : "Модель",
+        format: m.format as ModelFormat,
+        unit: m.unit,
+        size: { w: size.w as number, d: size.d as number, h: size.h as number },
+        data: m.data,
+      });
+    }
+  }
+  return { project: p, models };
 }

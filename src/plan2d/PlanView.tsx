@@ -16,11 +16,24 @@ import {
   wallOffsets,
   wallOutline,
 } from "../core/geometry";
+import {
+  type Anchor,
+  badItems,
+  FLAT,
+  itemAxes,
+  itemGaps,
+  normalizeRotation,
+  placeItem,
+  resizeItem,
+  snapItem,
+} from "../core/items";
 import { badOpenings, clampOffset, MIN_OPENING, newOpening } from "../core/openings";
 import * as ops from "../core/ops";
-import type { Id, Opening, OpeningKind, Point, Project, Wall } from "../core/types";
+import type { Id, Item, Opening, OpeningKind, Point, Project, Wall } from "../core/types";
 import { formatAngle, formatMeters, parseAngle, parseLength, round } from "../core/units";
+import { againstWall, isRound } from "../furniture/catalog";
 import { type Tool, useEditor, useShownProject } from "../store/editor";
+import { ItemHandles, ItemShape } from "./ItemShape";
 import { OpeningShape } from "./OpeningShape";
 
 // План сверху. Всё внутри рисуется в метрах; вид (масштаб и сдвиг) переводит метры в пиксели.
@@ -37,7 +50,11 @@ type Drag =
   | { kind: "box"; start: Point; end: Point; add: boolean; moved: boolean }
   | { kind: "opening"; start: Point; id: Id; moved: boolean }
   /** Тянут край проёма: 0 — со стороны узла a, 1 — со стороны b; другой край стоит. */
-  | { kind: "op-end"; start: Point; id: Id; end: 0 | 1; moved: boolean };
+  | { kind: "op-end"; start: Point; id: Id; end: 0 | 1; moved: boolean }
+  | { kind: "item"; start: Point; id: Id; moved: boolean }
+  /** Тянут сторону предмета: ось u (ширина) или v (глубина), сторона −1 или 1; противоположная стоит. */
+  | { kind: "item-edge"; start: Point; id: Id; axis: "u" | "v"; side: 1 | -1; moved: boolean }
+  | { kind: "item-rot"; start: Point; id: Id; moved: boolean };
 
 /** Какой проём ставит инструмент. */
 const TOOL_KIND: Partial<Record<Tool, OpeningKind>> = { window: "window", door: "door" };
@@ -47,6 +64,8 @@ const GRID_SNAP = 0.05; // шаг сетки для свободной точк�
 const ANGLE_STEP = Math.PI / 12; // 15°
 const DRAG_PX = 3; // меньше — это клик, а не перетаскивание
 const EXACT = 0.002; // набранная длина попала на стену или угол точнее 2 мм — встаём в них
+const REACH = 0.6; // новый предмет разворачивается к стене, если курсор к ней ближе (плюс полглубины), м
+const ROTATE_STEP = 15; // поворот ручкой — через 15°, с Alt — свободно
 
 /** Куда встанет точка: в существующий угол, на стену (Т-стык) или в свободное место. */
 interface Snap {
@@ -82,6 +101,18 @@ function dragOpening(pr: Project, d: { kind: "opening" | "op-end"; start: Point;
   }
 }
 
+/** Черновик при перетаскивании стороны предмета: размер по этой оси с точностью до сантиметра, другая сторона стоит. */
+function dragItemEdge(it: Item, d: { start: Point; axis: "u" | "v"; side: 1 | -1 }, p: Point) {
+  const { u, v } = itemAxes(it);
+  const delta = Math.round(dot(sub(p, d.start), d.axis === "u" ? u : v) * 100) / 100;
+  const size = Math.max(0.01, (d.axis === "u" ? it.width : it.depth) + d.side * delta);
+  const anchor = { u: (d.axis === "u" ? -d.side : 0) as Anchor, v: (d.axis === "v" ? -d.side : -1) as Anchor };
+  resizeItem(it, d.axis === "u" ? { width: size } : { depth: size }, anchor);
+}
+
+/** Порядок рисования: ковры снизу, висящее выше метра — сверху. */
+const layer = (it: Item) => (it.height < FLAT ? 0 : it.elevation >= 1 ? 2 : 1);
+
 export function PlanView() {
   const project = useShownProject();
   const tool = useEditor((s) => s.tool);
@@ -92,6 +123,8 @@ export function PlanView() {
   const selectedRoom = useEditor((s) => s.room);
   const anchor = useEditor((s) => s.anchor);
   const selectedOpening = useEditor((s) => s.opening);
+  const selectedItem = useEditor((s) => s.item);
+  const placingDraft = useEditor((s) => s.placing);
   const st = useEditor.getState();
 
   const svgRef = useRef<SVGSVGElement>(null);
@@ -221,6 +254,18 @@ export function PlanView() {
   };
   const placing = placingAt(cursor);
 
+  // ---------- инструмент «Мебель»: предмет из каталога под курсором ----------
+  const ghostAt = (p: Point | null): Item | null => {
+    if (tool !== "furniture" || !placingDraft || !p) return null;
+    return placeItem(project, placingDraft, round2(p), {
+      againstWall: againstWall(placingDraft),
+      reach: REACH,
+      tol: SNAP_PX / view.s,
+      isRound,
+    });
+  };
+  const ghost = ghostAt(cursor);
+
   // ---------- клавиатура ----------
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -245,6 +290,57 @@ export function PlanView() {
         s.setTool("select");
         return;
       }
+      const k = e.key.toLowerCase();
+      const ctrl = e.ctrlKey || e.metaKey;
+      const arrows: Record<string, Point> = {
+        ArrowLeft: { x: -1, y: 0 },
+        ArrowRight: { x: 1, y: 0 },
+        ArrowUp: { x: 0, y: -1 },
+        ArrowDown: { x: 0, y: 1 },
+      };
+      const a = arrows[e.key];
+      if (s.tool === "furniture") {
+        // Esc: от предмета — к каталогу, от каталога — к «Выбору»; R — повернуть то, что ставим
+        if (e.key === "Escape") {
+          if (s.placing) s.startPlacing(null);
+          else s.setTool("select");
+        }
+        if (s.placing && !ctrl && (k === "r" || k === "к")) s.rotatePlacing(e.shiftKey ? -90 : 90);
+        return;
+      }
+      if (s.item) {
+        if (e.key === "Delete" || e.key === "Backspace") {
+          s.deleteItem(s.item);
+          return;
+        }
+        if (e.key === "Escape") {
+          s.selectItem(null);
+          return;
+        }
+        if (!ctrl && (k === "r" || k === "к")) {
+          s.rotateItem(s.item, e.shiftKey ? -90 : 90);
+          return;
+        }
+        if (ctrl && (k === "d" || k === "в")) {
+          e.preventDefault();
+          s.duplicateItem(s.item);
+          return;
+        }
+        if (ctrl && (k === "c" || k === "с")) {
+          s.copyItem(s.item);
+          return;
+        }
+        if (a) {
+          e.preventDefault();
+          s.moveItem(s.item, mul(a, e.shiftKey ? 0.1 : 0.01));
+          return;
+        }
+      }
+      if (ctrl && (k === "v" || k === "м") && s.clipboard) {
+        e.preventDefault();
+        s.pasteItem();
+        return;
+      }
       if (s.opening) {
         if (e.key === "Delete" || e.key === "Backspace") {
           s.deleteOpening(s.opening);
@@ -263,18 +359,11 @@ export function PlanView() {
         s.setSelection([]);
         return;
       }
-      if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "ф")) {
+      if (ctrl && (k === "a" || k === "ф")) {
         e.preventDefault();
         s.setSelection(Object.keys(s.project.walls));
         return;
       }
-      const arrows: Record<string, Point> = {
-        ArrowLeft: { x: -1, y: 0 },
-        ArrowRight: { x: 1, y: 0 },
-        ArrowUp: { x: 0, y: -1 },
-        ArrowDown: { x: 0, y: 1 },
-      };
-      const a = arrows[e.key];
       if (a && s.selection.length) {
         e.preventDefault();
         s.moveNodes(ops.nodesOfWalls(s.project, s.selection), mul(a, e.shiftKey ? 0.1 : 0.01));
@@ -317,6 +406,29 @@ export function PlanView() {
         end !== null
           ? { kind: "op-end", start: p, id: openingId, end: end === "1" ? 1 : 0, moved: false }
           : { kind: "opening", start: p, id: openingId, moved: false };
+      return;
+    }
+    const itemEdge = target.getAttribute("data-item-edge");
+    if (itemEdge && selectedItem) {
+      const [axis, side] = itemEdge.split(":");
+      drag.current = {
+        kind: "item-edge",
+        start: p,
+        id: selectedItem,
+        axis: axis === "v" ? "v" : "u",
+        side: side === "-1" ? -1 : 1,
+        moved: false,
+      };
+      return;
+    }
+    if (target.getAttribute("data-item-rot") && selectedItem) {
+      drag.current = { kind: "item-rot", start: p, id: selectedItem, moved: false };
+      return;
+    }
+    const itemId = target.getAttribute("data-item");
+    if (itemId) {
+      st.selectItem(itemId);
+      drag.current = { kind: "item", start: p, id: itemId, moved: false };
       return;
     }
     if (nodeId) {
@@ -368,6 +480,38 @@ export function PlanView() {
       st.setPreview(draftWith((pr) => ops.moveNodes(pr, d.nodes, delta)));
     } else if (d.kind === "opening" || d.kind === "op-end") {
       st.setPreview(draftWith((pr) => dragOpening(pr, d, p)));
+    } else if (d.kind === "item") {
+      // шаг 1 см; у стены или соседа предмет прилипает к ним (с Alt — нет)
+      const delta = round2(sub(p, d.start));
+      const free = e.altKey;
+      const tol = SNAP_PX / view.s;
+      st.setPreview(
+        draftWith((pr) => {
+          const it = pr.items[d.id];
+          if (!it) return;
+          it.x = round(it.x + delta.x);
+          it.y = round(it.y + delta.y);
+          if (!free) Object.assign(it, snapItem(pr, it, tol, isRound));
+        }),
+      );
+    } else if (d.kind === "item-edge") {
+      st.setPreview(
+        draftWith((pr) => {
+          const it = pr.items[d.id];
+          if (it) dragItemEdge(it, d, p);
+        }),
+      );
+    } else if (d.kind === "item-rot") {
+      const free = e.altKey;
+      st.setPreview(
+        draftWith((pr) => {
+          const it = pr.items[d.id];
+          if (!it) return;
+          // ручка — перед передом: поворот такой, чтобы перед смотрел на курсор
+          const deg = (Math.atan2(it.x - p.x, p.y - it.y) * 180) / Math.PI;
+          it.rotation = normalizeRotation(free ? deg : Math.round(deg / ROTATE_STEP) * ROTATE_STEP);
+        }),
+      );
     } else if (d.kind === "node") {
       const base = useEditor.getState().project;
       const tol = SNAP_PX / view.s;
@@ -407,6 +551,11 @@ export function PlanView() {
       if (o) st.addOpening(o.wall, o.kind, o.offset + o.width / 2);
       return;
     }
+    if (tool === "furniture") {
+      const it = ghostAt(toPlan(e.clientX, e.clientY));
+      if (it) st.addItem(it, e.shiftKey); // с Shift — ставить ещё такой же
+      return;
+    }
     const d = drag.current;
     drag.current = null;
     if (!d) return;
@@ -416,6 +565,17 @@ export function PlanView() {
     } else if (d.kind === "opening" || d.kind === "op-end") {
       const o = useEditor.getState().preview?.openings[d.id];
       if (d.moved && o) st.updateOpening(d.id, { offset: o.offset, width: o.width });
+    } else if (d.kind === "item" || d.kind === "item-edge" || d.kind === "item-rot") {
+      const it = useEditor.getState().preview?.items[d.id];
+      if (d.moved && it)
+        st.updateItem(d.id, {
+          x: it.x,
+          y: it.y,
+          rotation: it.rotation,
+          width: it.width,
+          depth: it.depth,
+          height: it.height,
+        });
     } else if (d.kind === "node") {
       const preview = useEditor.getState().preview;
       if (d.moved && preview) st.moveNode(d.id, preview.nodes[d.id]!, d.wall);
@@ -502,6 +662,10 @@ export function PlanView() {
 
   const preview = tool === "wall" && last && snap ? { a: last as Point, b: snap.p } : null;
   const bad = badOpenings(project);
+  const badItemSet = useMemo(() => badItems(project, isRound), [project]);
+  const items = Object.values(project.items).sort((a, b) => layer(a) - layer(b));
+  const shownItem = selectedItem ? project.items[selectedItem] : undefined;
+  const gapsOf = tool === "select" ? shownItem : ghost;
   // у выбранного или ставящегося проёма — размеры: от углов стены и ширина
   const dimsOf = placing ?? (selectedOpening ? project.openings[selectedOpening] : undefined);
   const openingDims = (o: Opening) => {
@@ -561,6 +725,20 @@ export function PlanView() {
             </g>
           );
         })}
+
+        {items.map((it) => (
+          <ItemShape key={it.id} it={it} px={px} selected={it.id === selectedItem} bad={badItemSet.has(it.id)} />
+        ))}
+        {ghost && (
+          <ItemShape
+            it={ghost}
+            px={px}
+            className="placing"
+            bad={badItems({ ...project, items: { ...project.items, ghost: { ...ghost, id: "ghost" } } }, isRound).has(
+              "ghost",
+            )}
+          />
+        )}
 
         {walls.map((w) => (
           <polygon
@@ -637,6 +815,16 @@ export function PlanView() {
             />
           );
         })}
+
+        {/* у выбранного и ставящегося предмета — расстояния до стен и соседей */}
+        {gapsOf &&
+          itemGaps(project, gapsOf).map((g, i) => (
+            <g key={`gap${i}`} className="item-gap">
+              <line x1={g.from.x} y1={g.from.y} x2={g.to.x} y2={g.to.y} />
+              {wallLabel(g.from, g.to, 0, 0, formatMeters(g.d), `gl${i}`)}
+            </g>
+          ))}
+        {tool === "select" && shownItem && <ItemHandles it={shownItem} px={px} />}
 
         {tool === "wall" &&
           Object.values(project.nodes).map((n) => (
@@ -760,6 +948,14 @@ export function PlanView() {
                 вверх. Enter — поставить. Или просто кликните. Esc — закончить
               </>
             )}
+          </div>
+        </foreignObject>
+      )}
+      {tool === "furniture" && placingDraft && (
+        <foreignObject x={12} y={size.h - 52} width={size.w - 24} height={40}>
+          <div className="chip">
+            Ставим <b>{placingDraft.name}</b> · клик — поставить, с Shift — ещё один · у стены встаёт к ней спинкой ·{" "}
+            <b>R</b> — повернуть · Esc — к каталогу
           </div>
         </foreignObject>
       )}
